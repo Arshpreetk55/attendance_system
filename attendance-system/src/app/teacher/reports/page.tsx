@@ -22,11 +22,18 @@ import {
   HiOutlineViewGrid,
 } from 'react-icons/hi'
 
-type Branch = 'CSE' | 'IT'
+type Branch = 'CSE' | 'IT' | 'ECE' | 'EE' | 'CE' | 'ME' | 'AE'
+
+const FIRST_YEAR_BRANCHES = ['CSE', 'IT', 'ECE', 'EE', 'CE', 'ME', 'AE'] as const
 
 const BRANCH_TRADE: Record<Branch, string> = {
   CSE: 'Computer Science and Engineering',
-  IT: 'Information Technology',
+  IT:  'Information Technology',
+  ECE: 'Electronics and Communication Engineering',
+  EE:  'Electrical Engineering',
+  CE:  'Civil Engineering',
+  ME:  'Mechanical Engineering',
+  AE:  'Automobile Engineering',
 }
 
 function getTeacherBranches(user: AppUser | null): Branch[] {
@@ -34,7 +41,13 @@ function getTeacherBranches(user: AppUser | null): Branch[] {
   const codes: string[] =
     (user as any).departmentCodes ??
     [(user as any).departmentCode ?? '']
-  const valid = codes.filter((c): c is Branch => c === 'CSE' || c === 'IT')
+  const teacherDeptCode = (user as any).departmentCode as string | undefined
+
+  if (teacherDeptCode === 'AS') {
+    return [...FIRST_YEAR_BRANCHES]
+  }
+
+  const valid = codes.filter((c): c is Branch => FIRST_YEAR_BRANCHES.includes(c as Branch))
   if (valid.includes('CSE')) {
     return ['CSE', 'IT']
   }

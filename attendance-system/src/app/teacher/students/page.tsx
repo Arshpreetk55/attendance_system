@@ -18,11 +18,18 @@ import {
   HiOutlineViewGrid,
 } from 'react-icons/hi'
 
-type Branch = 'CSE' | 'IT'
+type Branch = 'CSE' | 'IT' | 'ECE' | 'EE' | 'CE' | 'ME' | 'AE'
+
+const FIRST_YEAR_BRANCHES = ['CSE', 'IT', 'ECE', 'EE', 'CE', 'ME', 'AE'] as const
 
 const BRANCH_TRADE: Record<Branch, string> = {
   CSE: 'Computer Science and Engineering',
-  IT: 'Information Technology',
+  IT:  'Information Technology',
+  ECE: 'Electronics and Communication Engineering',
+  EE:  'Electrical Engineering',
+  CE:  'Civil Engineering',
+  ME:  'Mechanical Engineering',
+  AE:  'Automobile Engineering',
 }
 
 function getTeacherBranches(user: AppUser | null): Branch[] {
@@ -30,7 +37,13 @@ function getTeacherBranches(user: AppUser | null): Branch[] {
   const codes: string[] =
     (user as any).departmentCodes ??
     [(user as any).departmentCode ?? '']
-  const valid = codes.filter((c): c is Branch => c === 'CSE' || c === 'IT')
+  const teacherDeptCode = (user as any).departmentCode as string | undefined
+
+  if (teacherDeptCode === 'AS') {
+    return [...FIRST_YEAR_BRANCHES]
+  }
+
+  const valid = codes.filter((c): c is Branch => FIRST_YEAR_BRANCHES.includes(c as Branch))
   if (valid.includes('CSE')) {
     return ['CSE', 'IT']
   }
@@ -71,6 +84,7 @@ export default function StudentsPage() {
   const [sectionFilter, setSectionFilter] = useState({ trade: '', semester: '', section: '' })
   const [dataLoading, setDataLoading] = useState(false)
 
+  const isAsTeacher = (appUser as any)?.departmentCode === 'AS'
   const [newStudent, setNewStudent] = useState({
     displayName: '', rollNumber: '', email: '',
     trade: '', semester: '', section: '', parentEmail: '',
@@ -102,7 +116,10 @@ export default function StudentsPage() {
     if (!sectionFilter.trade || !sectionFilter.semester || !sectionFilter.section) return
     setDataLoading(true)
     getStudentsBySection(sectionFilter.trade, parseInt(sectionFilter.semester), sectionFilter.section)
-      .then(setStudents)
+      .then(data => {
+        data.sort((a, b) => new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' }).compare(a.rollNumber, b.rollNumber))
+        setStudents(data)
+      })
       .finally(() => setDataLoading(false))
   }, [sectionFilter])
 
@@ -153,10 +170,14 @@ export default function StudentsPage() {
   const selectedTrade = trades.find(t => t.name === sectionFilter.trade)
   const availableSections = selectedTrade?.sections ?? SECTIONS
 
-  const filteredStudents = students.filter(s =>
-    s.displayName.toLowerCase().includes(search.toLowerCase()) ||
-    s.rollNumber.toLowerCase().includes(search.toLowerCase())
-  )
+  const rollCollator = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' })
+
+  const filteredStudents = [...students]
+    .sort((a, b) => rollCollator.compare(a.rollNumber, b.rollNumber))
+    .filter(s =>
+      s.displayName.toLowerCase().includes(search.toLowerCase()) ||
+      s.rollNumber.toLowerCase().includes(search.toLowerCase())
+    )
 
   if (loading || !teacher) return <Loading fullScreen />
 
@@ -190,7 +211,9 @@ export default function StudentsPage() {
                   onChange={e => setSectionFilter(p => ({ ...p, semester: e.target.value }))}
                   disabled={!sectionFilter.trade}>
                   <option value="">Select</option>
-                  {[1, 2, 3, 4, 5, 6].map(s => <option key={s} value={s}>Semester {s}</option>)}
+                  {(isAsTeacher ? [1, 2] : [1, 2, 3, 4, 5, 6]).map(s => (
+                    <option key={s} value={s}>Semester {s}</option>
+                  ))}
                 </select>
               </div>
               <div>

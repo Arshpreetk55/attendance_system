@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react'
 import { useAuth } from '@/lib/auth-context'
 import { useRouter } from 'next/navigation'
 import {
-  getTodayPeriodsForTeacher, getStudentsBySection,
+  getTodayPeriodsForTeacher, getTimetableByTeacher, getStudentsBySection,
   getSectionAttendanceByDate, getLowAttendanceStudents,
 } from '@/lib/db'
 import type { TeacherUser, Period, StudentUser, LowAttendanceStudent } from '@/types'
@@ -24,11 +24,18 @@ import {
 
 // ─── types ───────────────────────────────────────────────────────────────────
 
-type Branch = 'CSE' | 'IT'
+type Branch = 'CSE' | 'IT' | 'ECE' | 'EE' | 'CE' | 'ME' | 'AE'
+
+const FIRST_YEAR_BRANCHES = ['CSE', 'IT', 'ECE', 'EE', 'CE', 'ME', 'AE'] as const
 
 const BRANCH_TRADE: Record<Branch, string> = {
   CSE: 'Computer Science and Engineering',
   IT:  'Information Technology',
+  ECE: 'Electronics and Communication Engineering',
+  EE:  'Electrical Engineering',
+  CE:  'Civil Engineering',
+  ME:  'Mechanical Engineering',
+  AE:  'Automobile Engineering',
 }
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
@@ -45,7 +52,13 @@ function getTeacherBranches(teacher: TeacherUser): Branch[] {
   const codes: string[] =
     (teacher as any).departmentCodes ??
     [(teacher as any).departmentCode ?? '']
-  const valid = codes.filter((c): c is Branch => c === 'CSE' || c === 'IT')
+  const teacherDeptCode = (teacher as any).departmentCode as string | undefined
+
+  if (teacherDeptCode === 'AS') {
+    return [...FIRST_YEAR_BRANCHES]
+  }
+
+  const valid = codes.filter((c): c is Branch => FIRST_YEAR_BRANCHES.includes(c as Branch))
   if (valid.length > 0) return Array.from(new Set(valid))
 
   const sectionTrades = new Set<string>()
@@ -58,13 +71,27 @@ function getTeacherBranches(teacher: TeacherUser): Branch[] {
     })
   }
   const sectionCodes = Array.from(sectionTrades)
-    .map(trade => trade === 'Computer Science and Engineering' ? 'CSE' : trade === 'Information Technology' ? 'IT' : '')
-    .filter((c): c is Branch => c === 'CSE' || c === 'IT')
+    .map(trade => {
+      if (trade === 'Computer Science and Engineering') return 'CSE'
+      if (trade === 'Information Technology') return 'IT'
+      if (trade === 'Electronics and Communication Engineering') return 'ECE'
+      if (trade === 'Electrical Engineering') return 'EE'
+      if (trade === 'Civil Engineering') return 'CE'
+      if (trade === 'Mechanical Engineering') return 'ME'
+      if (trade === 'Automobile Engineering') return 'AE'
+      return ''
+    })
+    .filter((c): c is Branch => FIRST_YEAR_BRANCHES.includes(c as Branch))
   if (sectionCodes.length > 0) return Array.from(new Set(sectionCodes))
 
   const dept = (teacher as any).department as string | undefined
   if (dept === 'Computer Science and Engineering') return ['CSE']
   if (dept === 'Information Technology') return ['IT']
+  if (dept === 'Electronics and Communication Engineering') return ['ECE']
+  if (dept === 'Electrical Engineering') return ['EE']
+  if (dept === 'Civil Engineering') return ['CE']
+  if (dept === 'Mechanical Engineering') return ['ME']
+  if (dept === 'Automobile Engineering') return ['AE']
 
   return ['CSE']
 }
@@ -88,7 +115,8 @@ export default function TeacherDashboard() {
   const [selectedBranch, setSelectedBranch]               = useState<Branch | null>(null)
   const teacherBranches: Branch[]                         = teacher ? getTeacherBranches(teacher) : []
   const [todayPeriods, setTodayPeriods]                   = useState<Period[]>([])
-  const [allStudents, setAllStudents]                     = useState<StudentUser[]>([])
+  const [todayStudents, setTodayStudents]                 = useState<StudentUser[]>([])
+  const [totalStudents, setTotalStudents]                 = useState(0)
   const [lowAttendanceStudents, setLowAttendanceStudents] = useState<LowAttendanceStudent[]>([])
   const [todayPct, setTodayPct]                           = useState(0)
   const [dataLoading, setDataLoading]                     = useState(true)
@@ -111,9 +139,10 @@ export default function TeacherDashboard() {
     if (!teacher || !selectedBranch) return
     setDataLoading(true)
     setTodayPeriods([])
-    setAllStudents([])
+    setTodayStudents([])
     setLowAttendanceStudents([])
     setTodayPct(0)
+    setTotalStudents(0)
 
     const init = async () => {
       const allPeriods  = await getTodayPeriodsForTeacher(teacher.uid)
@@ -122,13 +151,13 @@ export default function TeacherDashboard() {
       setTodayPeriods(periods)
 
       const sectionSet = new Set<string>()
-      let allStds: StudentUser[] = []
+      let todayStds: StudentUser[] = []
       for (const period of periods) {
         const key = `${period.trade}-${period.semester}-${period.section}`
         if (!sectionSet.has(key)) {
           sectionSet.add(key)
           const stds = await getStudentsBySection(period.trade, period.semester, period.section)
-          allStds = [...allStds, ...stds]
+          todayStds = [...todayStds, ...stds]
           const lowStds = await getLowAttendanceStudents(period.trade, period.semester, period.section)
           setLowAttendanceStudents(prev => {
             const ids = new Set(prev.map(s => s.studentId))
@@ -136,7 +165,28 @@ export default function TeacherDashboard() {
           })
         }
       }
-      setAllStudents(allStds)
+      setTodayStudents(todayStds)
+
+      const timetable = await getTimetableByTeacher(teacher.uid)
+      if (timetable) {
+        const sectionKeys = new Set<string>()
+        timetable.schedule.forEach(day => {
+          day.periods.forEach(period => {
+            sectionKeys.add(`${period.trade}::${period.semester}::${period.section}`)
+          })
+        })
+
+        const studentIds = new Set<string>()
+        for (const key of sectionKeys) {
+          const [trade, semesterStr, section] = key.split('::')
+          const sem = Number(semesterStr)
+          const students = await getStudentsBySection(trade, sem, section)
+          students.forEach(student => studentIds.add(student.uid))
+        }
+        setTotalStudents(studentIds.size)
+      } else {
+        setTotalStudents(0)
+      }
 
       if (periods.length > 0 && allStds.length > 0) {
         const todayRecs     = await getSectionAttendanceByDate(todayString(), periods[0].trade, periods[0].semester, periods[0].section)
@@ -205,7 +255,7 @@ export default function TeacherDashboard() {
             <>
               {/* Stats */}
               <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-                <StatCard title="Total Students"     value={allStudents.length}           icon={<HiOutlineUsers />}             color="blue" />
+                <StatCard title="Total Students"     value={totalStudents}               icon={<HiOutlineUsers />}             color="blue" />
                 <StatCard title="Today's Periods"    value={todayPeriods.length}           icon={<HiOutlineClock />}             color="purple" />
                 <StatCard title="Today's Attendance" value={`${todayPct}%`}               icon={<HiOutlineClipboardCheck />}
                   color={todayPct >= 85 ? 'green' : todayPct >= 75 ? 'yellow' : 'red'} />

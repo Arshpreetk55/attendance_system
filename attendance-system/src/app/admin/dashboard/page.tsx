@@ -1,12 +1,12 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
 import { useAuth } from '@/lib/auth-context'
 import { getDocs, collection, query, where } from 'firebase/firestore'
 import { db } from '@/lib/firebase'
 import {
-  COLLECTIONS, getTodayPeriodsForTeacher, getStudentsBySection,
+  COLLECTIONS, getTodayPeriodsForTeacher, getTimetableByTeacher, getStudentsBySection,
   getSectionAttendanceByDate, getLowAttendanceStudents,
 } from '@/lib/db'
 import Loading from '@/components/ui/Loading'
@@ -35,7 +35,10 @@ import { todayString, formatDate } from '@/lib/utils'
 
 type Tab = 'overview' | 'teachers' | 'students'
 type YearFilter = 'all' | '1st' | '2nd' | '3rd'
-type BranchFilter = 'all' | 'CSE' | 'IT'
+type BranchCode = 'CSE' | 'IT' | 'ECE' | 'EE' | 'CE' | 'ME' | 'AE'
+type BranchFilter = 'all' | BranchCode
+
+const FIRST_YEAR_BRANCHES = ['CSE', 'IT', 'ECE', 'EE', 'CE', 'ME', 'AE'] as const
 
 const CODE_TO_TRADE: Record<string, string> = {
   'CSE': 'Computer Science and Engineering',
@@ -55,9 +58,14 @@ const YEAR_SEMS: Record<YearFilter, number[]> = {
   '3rd': [5, 6],
 }
 
-const BRANCH_TRADE: Record<'CSE' | 'IT', string> = {
+const BRANCH_TRADE: Record<BranchCode, string> = {
   CSE: 'Computer Science and Engineering',
   IT:  'Information Technology',
+  ECE: 'Electronics and Communication Engineering',
+  EE:  'Electrical Engineering',
+  CE:  'Civil Engineering',
+  ME:  'Mechanical Engineering',
+  AE:  'Automobile Engineering',
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -193,58 +201,40 @@ export default function AdminDashboardPage() {
   const [selectedTeacher, setSelectedTeacher] = useState<MergedTeacher | null>(null)
 
   // ── Teacher/class state ────────────────────────────────────────────────────
-  const [selectedBranch, setSelectedBranch]               = useState<'CSE' | 'IT' | null>(null)
+  const [selectedBranch, setSelectedBranch]               = useState<BranchCode | null>(null)
   const [todayPeriods, setTodayPeriods]                   = useState<Period[]>([])
   const [classStudents, setClassStudents]                 = useState<StudentUser[]>([])
+  const [totalStudents, setTotalStudents]                 = useState(0)
   const [lowAttendanceStudents, setLowAttendanceStudents] = useState<LowAttendanceStudent[]>([])
   const [todayPct, setTodayPct]                           = useState(0)
   const [classLoading, setClassLoading]                   = useState(false)
 
   const adminDept     = (appUser as any)?.department ?? ''
   const adminDeptCode = (appUser as any)?.departmentCode ?? ''
+  const isAsAdmin     = adminDeptCode === 'AS'
   const isCseAdmin    = adminDeptCode === 'CSE'
+  const canFilterBranches = isCseAdmin || isAsAdmin
 
-  const adminBranches: ('CSE' | 'IT')[] = isCseAdmin ? ['CSE', 'IT'] : (
-    adminDeptCode === 'IT' ? ['IT'] :
-    adminDeptCode === 'CSE' ? ['CSE'] : []
-  )
+  const adminBranches = useMemo<BranchCode[]>(() => (
+    isAsAdmin
+      ? [...FIRST_YEAR_BRANCHES]
+      : isCseAdmin ? ['CSE', 'IT']
+      : adminDeptCode && FIRST_YEAR_BRANCHES.includes(adminDeptCode as BranchCode)
+        ? [adminDeptCode as BranchCode]
+        : []
+  ), [isAsAdmin, isCseAdmin, adminDeptCode])
 
-  // Sidebar links (inside component so JSX icons work)
-  const sidebarLinks = [
-    { href: '/admin/dashboard',         label: 'Dashboard',       icon: <HiOutlineViewGrid size={18} /> },
-    { href: '/teacher/mark-attendance', label: 'Mark Attendance', icon: <HiOutlineClipboardCheck size={18} /> },
-    { href: '/teacher/students',        label: 'Students',        icon: <HiOutlineUsers size={18} /> },
-    { href: '/teacher/timetable',       label: 'Timetable',       icon: <HiOutlineCalendar size={18} /> },
-    { href: '/teacher/reports',         label: 'Reports',         icon: <HiOutlineDocumentReport size={18} /> },
-  ]
+  const teacherBranchOptions: BranchFilter[] = isAsAdmin
+    ? ['all']
+    : ['all', 'CSE', 'IT']
 
-  // Auth guard
-  useEffect(() => {
-    if (!loading && !appUser)                { router.push('/admin/login'); return }
-    if (!loading && appUser?.role !== 'admin') { router.push('/'); return }
-  }, [appUser, loading, router])
-
-  // Auto-select branch
-  useEffect(() => {
-    if (!appUser) return
-    if (adminBranches.length === 1) setSelectedBranch(adminBranches[0])
-    else if (adminBranches.length > 1 && !selectedBranch) setSelectedBranch(adminBranches[0])
-  }, [appUser])
-
-  useEffect(() => {
-    if (appUser?.role !== 'admin') return
-    fetchManagementData()
-  }, [appUser])
-
-  useEffect(() => {
-    if (!appUser || !selectedBranch) return
-    fetchClassData()
-  }, [appUser, selectedBranch])
-
-  async function fetchManagementData() {
+  const fetchManagementData = useCallback(async () => {
     setLoadingData(true)
     try {
-      const deptCodes = isCseAdmin ? ['CSE', 'IT'] : [adminDeptCode]
+      const deptCodes = isAsAdmin
+        ? ['AS']
+        : isCseAdmin ? ['CSE', 'IT']
+        : [adminDeptCode]
 
       const teacherSnaps = await Promise.all(
         deptCodes.map(code =>
@@ -265,8 +255,9 @@ export default function AdminDashboardPage() {
       }
       setTeachers(mergeTeachers(rawTeachers))
 
-      const tradesToFetch = isCseAdmin
-        ? ['Computer Science and Engineering', 'Information Technology']
+      const tradesToFetch = isAsAdmin
+        ? FIRST_YEAR_BRANCHES.map(code => CODE_TO_TRADE[code])
+        : isCseAdmin ? ['Computer Science and Engineering', 'Information Technology']
         : [adminDept]
 
       const studentSnaps = await Promise.all(
@@ -285,23 +276,28 @@ export default function AdminDashboardPage() {
           }
         }
       }
-      allStudents.sort((a, b) => (a as any).semester - (b as any).semester)
-      setStudents(allStudents)
+      const finalStudents = isAsAdmin
+        ? allStudents.filter(s => [1, 2].includes((s as any).semester))
+        : allStudents
+
+      finalStudents.sort((a, b) => (a as any).semester - (b as any).semester)
+      setStudents(finalStudents)
     } catch (err) {
       console.error(err)
       toast.error('Failed to load data')
     } finally {
       setLoadingData(false)
     }
-  }
+  }, [isAsAdmin, isCseAdmin, adminDeptCode, adminDept])
 
-  async function fetchClassData() {
+  const fetchClassData = useCallback(async () => {
     if (!appUser || !selectedBranch) return
     setClassLoading(true)
     setTodayPeriods([])
     setClassStudents([])
     setLowAttendanceStudents([])
     setTodayPct(0)
+    setTotalStudents(0)
     try {
       const allPeriods  = await getTodayPeriodsForTeacher(appUser.uid)
       const branchTrade = BRANCH_TRADE[selectedBranch]
@@ -326,6 +322,27 @@ export default function AdminDashboardPage() {
       setClassStudents(allStds)
       setLowAttendanceStudents(lowStdsAccum)
 
+      const timetable = await getTimetableByTeacher(appUser.uid)
+      if (timetable) {
+        const sectionKeys = new Set<string>()
+        timetable.schedule.forEach(day => {
+          day.periods.forEach(period => {
+            sectionKeys.add(`${period.trade}::${period.semester}::${period.section}`)
+          })
+        })
+
+        const studentIds = new Set<string>()
+        for (const key of sectionKeys) {
+          const [trade, semesterStr, section] = key.split('::')
+          const sem = Number(semesterStr)
+          const students = await getStudentsBySection(trade, sem, section)
+          students.forEach(student => studentIds.add(student.uid))
+        }
+        setTotalStudents(studentIds.size)
+      } else {
+        setTotalStudents(0)
+      }
+
       if (periods.length > 0 && allStds.length > 0) {
         const todayRecs     = await getSectionAttendanceByDate(todayString(), periods[0].trade, periods[0].semester, periods[0].section)
         const totalMarked   = todayRecs.reduce((a, r) => a + r.students.filter(s => s.status === 'present').length, 0)
@@ -338,12 +355,56 @@ export default function AdminDashboardPage() {
     } finally {
       setClassLoading(false)
     }
-  }
+  }, [appUser, selectedBranch])
+
+  // Sidebar links (inside component so JSX icons work)
+  const sidebarLinks = [
+    { href: '/admin/dashboard',         label: 'Dashboard',       icon: <HiOutlineViewGrid size={18} /> },
+    { href: '/teacher/mark-attendance', label: 'Mark Attendance', icon: <HiOutlineClipboardCheck size={18} /> },
+    { href: '/teacher/students',        label: 'Students',        icon: <HiOutlineUsers size={18} /> },
+    { href: '/teacher/timetable',       label: 'Timetable',       icon: <HiOutlineCalendar size={18} /> },
+    { href: '/teacher/reports',         label: 'Reports',         icon: <HiOutlineDocumentReport size={18} /> },
+  ]
+
+  // Auth guard
+  useEffect(() => {
+    if (!loading && !appUser)                { router.push('/admin/login'); return }
+    if (!loading && appUser?.role !== 'admin') { router.push('/'); return }
+  }, [appUser, loading, router])
+
+  // Auto-select branch
+  useEffect(() => {
+    if (!appUser) return
+    if (adminBranches.length === 1) setSelectedBranch(adminBranches[0])
+    else if (adminBranches.length > 1 && !selectedBranch) setSelectedBranch(adminBranches[0])
+  }, [appUser, adminBranches, selectedBranch])
+
+  useEffect(() => {
+    if (activeTab === 'teachers' && isAsAdmin && branchFilter !== 'all') {
+      setBranchFilter('all')
+    }
+  }, [activeTab, isAsAdmin, branchFilter])
+
+  useEffect(() => {
+    if (isAsAdmin && yearFilter !== 'all') {
+      setYearFilter('all')
+    }
+  }, [isAsAdmin, yearFilter])
+
+  useEffect(() => {
+    if (appUser?.role !== 'admin') return
+    fetchManagementData()
+  }, [appUser, fetchManagementData])
+
+  useEffect(() => {
+    if (!appUser || !selectedBranch) return
+    fetchClassData()
+  }, [appUser, selectedBranch, fetchClassData])
 
   // ── Filtered teachers ──────────────────────────────────────────────────────
   const filteredTeachers = teachers.filter(t => {
     const matchSearch = t.displayName.toLowerCase().includes(search.toLowerCase()) || t.teacherId.toLowerCase().includes(search.toLowerCase())
-    const matchBranch = branchFilter === 'all' || t.departmentCodes.includes(branchFilter)
+    const matchBranch = branchFilter === 'all' || isAsAdmin || t.departmentCodes.includes(branchFilter)
     return matchSearch && matchBranch
   })
 
@@ -356,7 +417,7 @@ export default function AdminDashboardPage() {
       for (const [code, trade] of Object.entries(CODE_TO_TRADE)) {
         if (trade === (s as any).trade) { matchCode = code; break }
       }
-      if (isCseAdmin) return branchFilter === 'all' || matchCode === branchFilter
+      if (isCseAdmin || isAsAdmin) return branchFilter === 'all' || matchCode === branchFilter
       return matchCode === adminDeptCode
     })
     .filter(s =>
@@ -444,7 +505,7 @@ export default function AdminDashboardPage() {
               {/* ── STAT CARDS (clickable) ─────────────────────────────── */}
               <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
                 <div onClick={() => setActiveTab('students')} className="cursor-pointer hover:opacity-80 transition-opacity">
-                  <StatCard title="Total Students"     value={classStudents.length}          icon={<HiOutlineUsers />}             color="blue" />
+                  <StatCard title="Total Students"     value={totalStudents}               icon={<HiOutlineUsers />}             color="blue" />
                 </div>
                 <Link href="/teacher/timetable" className="hover:opacity-80 transition-opacity">
                   <StatCard title="Today's Periods"    value={todayPeriods.length}           icon={<HiOutlineClock />}             color="purple" />
@@ -473,7 +534,7 @@ export default function AdminDashboardPage() {
                 ) : todayPeriods.length === 0 ? (
                   <div className="text-center py-8" style={{ color: 'var(--color-text-muted)' }}>
                     <HiOutlineCalendar size={32} className="mx-auto mb-2 opacity-50" />
-                    <p className="text-sm">No {selectedBranch} classes scheduled today.</p>
+                    <p className="text-sm">No classes scheduled yet.</p>
                     <Link href="/teacher/setup" className="text-sm mt-1 block" style={{ color: 'var(--color-primary)' }}>
                       Set up your timetable →
                     </Link>
@@ -571,10 +632,10 @@ export default function AdminDashboardPage() {
             <>
               {/* Filter bar */}
               <div className="flex items-center gap-3 flex-wrap">
-                {isCseAdmin && (
+                {canFilterBranches && !isAsAdmin && (
                   <div className="flex items-center gap-1 p-1 rounded-xl" style={{ background: 'var(--color-surface-2)' }}>
                     <HiOutlineFilter size={14} className="ml-2" style={{ color: 'var(--color-text-muted)' }} />
-                    {(['all', 'CSE', 'IT'] as BranchFilter[]).map(b => (
+                    {teacherBranchOptions.map(b => (
                       <button key={b} onClick={() => setBranchFilter(b)}
                         className="px-3 py-1.5 rounded-lg text-xs font-semibold transition-all"
                         style={{
@@ -669,10 +730,14 @@ export default function AdminDashboardPage() {
             <div className="space-y-4">
               {/* Filter bar */}
               <div className="flex items-center gap-3 flex-wrap">
-                {isCseAdmin && (
+                {canFilterBranches && (
                   <div className="flex items-center gap-1 p-1 rounded-xl" style={{ background: 'var(--color-surface-2)' }}>
                     <HiOutlineFilter size={14} className="ml-2" style={{ color: 'var(--color-text-muted)' }} />
-                    {(['all', 'CSE', 'IT'] as BranchFilter[]).map(b => (
+                    {(
+                      isAsAdmin
+                        ? (['all', ...FIRST_YEAR_BRANCHES] as BranchFilter[])
+                        : (['all', 'CSE', 'IT'] as BranchFilter[])
+                    ).map(b => (
                       <button key={b} onClick={() => setBranchFilter(b)}
                         className="px-3 py-1.5 rounded-lg text-xs font-semibold transition-all"
                         style={{
@@ -684,18 +749,20 @@ export default function AdminDashboardPage() {
                     ))}
                   </div>
                 )}
-                <div className="flex items-center gap-1 p-1 rounded-xl" style={{ background: 'var(--color-surface-2)' }}>
-                  {(['all', '1st', '2nd', '3rd'] as YearFilter[]).map(y => (
-                    <button key={y} onClick={() => setYearFilter(y)}
-                      className="px-3 py-1.5 rounded-lg text-xs font-semibold transition-all"
-                      style={{
-                        background: yearFilter === y ? 'var(--color-primary)' : 'transparent',
-                        color:      yearFilter === y ? 'white' : 'var(--color-text-muted)',
-                      }}>
-                      {y === 'all' ? 'All Years' : `${y} Yr`}
-                    </button>
-                  ))}
-                </div>
+                {!isAsAdmin && (
+                  <div className="flex items-center gap-1 p-1 rounded-xl" style={{ background: 'var(--color-surface-2)' }}>
+                    {(['all', '1st', '2nd', '3rd'] as YearFilter[]).map(y => (
+                      <button key={y} onClick={() => setYearFilter(y)}
+                        className="px-3 py-1.5 rounded-lg text-xs font-semibold transition-all"
+                        style={{
+                          background: yearFilter === y ? 'var(--color-primary)' : 'transparent',
+                          color:      yearFilter === y ? 'white' : 'var(--color-text-muted)',
+                        }}>
+                        {y === 'all' ? 'All Years' : `${y} Yr`}
+                      </button>
+                    ))}
+                  </div>
+                )}
                 <div className="relative flex-1 sm:w-56">
                   <HiOutlineSearch size={15} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: 'var(--color-text-muted)' }} />
                   <input className="input pl-9 text-sm" placeholder="Search students..."
@@ -703,12 +770,12 @@ export default function AdminDashboardPage() {
                 </div>
               </div>
 
-              {(yearFilter !== 'all' || branchFilter !== 'all') && (
+              {((!isAsAdmin && (yearFilter !== 'all' || branchFilter !== 'all')) || (isAsAdmin && branchFilter !== 'all')) && (
                 <div className="flex items-center gap-2 text-sm px-4 py-2 rounded-xl"
                   style={{ background: 'var(--color-surface-2)', color: 'var(--color-text-muted)' }}>
                   Showing
                   {branchFilter !== 'all' && <strong style={{ color: 'var(--color-text)' }}>{branchFilter}</strong>}
-                  {yearFilter !== 'all' && <strong style={{ color: 'var(--color-text)' }}>{yearFilter} Year</strong>}
+                  {!isAsAdmin && yearFilter !== 'all' && <strong style={{ color: 'var(--color-text)' }}>{yearFilter} Year</strong>}
                   students
                   <span className="ml-auto">{filteredStudents.length} students</span>
                 </div>
@@ -739,7 +806,8 @@ export default function AdminDashboardPage() {
                         </thead>
                         <tbody>
                           {grpStudents
-                            .sort((a, b) => ((a as any).rollNumber ?? '').localeCompare((b as any).rollNumber ?? ''))
+                            .sort((a, b) => new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' })
+                              .compare((a as any).rollNumber ?? '', (b as any).rollNumber ?? ''))
                             .map(student => (
                               <tr key={student.uid} className="border-b hover:opacity-90" style={{ borderColor: 'var(--color-border)' }}>
                                 <td className="px-4 py-3 font-mono font-bold text-xs" style={{ color: 'var(--color-primary)' }}>

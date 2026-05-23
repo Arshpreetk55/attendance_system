@@ -1,6 +1,6 @@
 'use client'
 
-type Branch = 'CSE' | 'IT'
+type Branch = 'CSE' | 'IT' | 'ECE' | 'EE' | 'CE' | 'ME' | 'AE'
 
 interface BranchSelectorProps {
   teacherName: string
@@ -22,6 +22,41 @@ const BRANCH_META: Record<Branch, { label: string; desc: string; color: string; 
     color: '#7c3aed',
     bg:    '#7c3aed15',
     emoji: '🌐',
+  },
+  ECE: {
+    label: 'Electronics & Communication',
+    desc:  'View ECE first-year students',
+    color: '#f97316',
+    bg:    '#f9731650',
+    emoji: '📡',
+  },
+  EE: {
+    label: 'Electrical Engineering',
+    desc:  'View EE first-year students',
+    color: '#16a34a',
+    bg:    '#16a34a30',
+    emoji: '⚡',
+  },
+  CE: {
+    label: 'Civil Engineering',
+    desc:  'View CE first-year students',
+    color: '#0ea5e9',
+    bg:    '#0ea5e930',
+    emoji: '🏗️',
+  },
+  ME: {
+    label: 'Mechanical Engineering',
+    desc:  'View ME first-year students',
+    color: '#eab308',
+    bg:    '#eab30830',
+    emoji: '🛠️',
+  },
+  AE: {
+    label: 'Automobile Engineering',
+    desc:  'View AE first-year students',
+    color: '#f97316',
+    bg:    '#f9731650',
+    emoji: '🚗',
   },
 }
 
