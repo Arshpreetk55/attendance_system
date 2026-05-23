@@ -190,9 +190,23 @@ export default function TeacherDashboard() {
         setTotalStudents(0)
       }
 
+      const allStds = await getStudentsBySection(
+        periods[0].trade,
+        periods[0].semester,
+        periods[0].section
+      )
+
       if (periods.length > 0 && allStds.length > 0) {
-        const todayRecs     = await getSectionAttendanceByDate(todayString(), periods[0].trade, periods[0].semester, periods[0].section)
-        const totalMarked   = todayRecs.reduce((a, r) => a + r.students.filter(s => s.status === 'present').length, 0)
+        const todayRecs     = await getSectionAttendanceByDate(
+          todayString(), 
+          periods[0].trade, 
+          periods[0].semester, 
+          periods[0].section
+        )
+        const totalMarked   = todayRecs.reduce(
+          (a, r) => a + r.students.filter(s => s.status === 'present').length,
+           0
+          )
         const totalExpected = todayRecs.length * allStds.length
         setTodayPct(totalExpected > 0 ? Math.round((totalMarked / totalExpected) * 100) : 0)
       }
