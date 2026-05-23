@@ -206,7 +206,19 @@ export default function StudentLoginPage() {
       </div>
 
       {/* Right login form */}
-      <div className="flex-1 flex items-center justify-center p-6">
+      <div className="flex-1 relative flex items-center justify-center p-6">
+        <button
+          type="button"
+          onClick={() => router.push('/')}
+          className="absolute top-6 left-6 px-4 py-2 rounded-lg text-sm border hover:bg-gray-100 transition"
+          style={{
+            borderColor: 'var(--color-border)',
+            color: 'var(--color-text)',
+            background: 'var(--color-surface)',
+          }}
+        >
+          ←
+        </button>
         <div className="w-full max-w-md animate-slide-up">
 
           {/* Mobile logo */}
@@ -304,6 +316,8 @@ export default function StudentLoginPage() {
               {/* Roll Number */}
               <div>
                 <label className="label">Roll Number</label>
+
+                
                 <input
                   className="input"
                   placeholder={form.section ? 'Enter your roll number' : 'Select section first'}
@@ -312,9 +326,7 @@ export default function StudentLoginPage() {
                   disabled={!form.section}
                   required
                 />
-                <p className="text-xs mt-1" style={{ color: 'var(--color-text-muted)' }}>
-                  Enter your roll number to access your student account
-                </p>
+                  
               </div>
 
               {/* Submit */}
@@ -334,7 +346,7 @@ export default function StudentLoginPage() {
           )}
 
           <p className="text-center text-sm mt-6" style={{ color: 'var(--color-text-muted)' }}>
-            Are you a teacher?{' '}
+            Teacher?{' '}
             <Link href="/teacher/login" className="font-medium hover:underline" style={{ color: 'var(--color-primary)' }}>
               Teacher Portal →
             </Link>

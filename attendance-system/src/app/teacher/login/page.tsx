@@ -82,15 +82,60 @@ export default function TeacherLoginPage() {
         <div className="absolute -bottom-16 -left-16 w-56 h-56 rounded-full bg-white/5" />
       </div>
 
-      <div className="flex-1 flex items-center justify-center p-6">
+      <div className="flex-1 relative flex items-center justify-center p-6">
+         <button
+  type="button"
+  onClick={() => router.push('/')}
+  className="absolute top-6 left-6 px-4 py-2 rounded-lg text-sm border hover:bg-gray-100 transition"
+  style={{
+    borderColor: 'var(--color-border)',
+    color: 'var(--color-text)',
+    background: 'var(--color-surface)',
+  }}
+>
+  ←
+</button>
         <div className="w-full max-w-md animate-slide-up">
-          <div className="lg:hidden flex items-center gap-2 mb-8">
-            <div className="w-9 h-9 rounded-xl flex items-center justify-center text-white font-bold"
-              style={{ background: 'var(--color-primary)' }}>A</div>
-            <span className="font-bold text-xl" style={{ color: 'var(--color-text)' }}>AttendX</span>
-          </div>
 
-          <div className="flex p-1 rounded-xl mb-6" style={{ background: 'var(--color-surface-2)' }}>
+  {/* Mobile Logo */}
+  <div className="lg:hidden flex items-center gap-2 mb-8">
+    <div
+  className="w-9 h-9 rounded-xl flex items-center justify-center text-white font-display font-bold"
+      style={{ background: 'var(--color-primary)' }}
+    >
+      A
+    </div>
+
+    <span
+      className="font-display font-bold text-xl"
+      style={{ color: 'var(--color-text)' }}
+    >
+      AttendX
+    </span>
+  </div>
+
+  {/* NEW HEADING */}
+  <h1
+    className="font-display text-2xl font-bold mb-2"
+    style={{ color: 'var(--color-text)' }}
+  >
+    {mode === 'signin' ? 'Teacher Sign In' : 'Teacher Sign Up'}
+  </h1>
+
+  <p
+    className="text-sm mb-6"
+    style={{ color: 'var(--color-text-muted)' }}
+  >
+    {mode === 'signin'
+      ? 'Access your teacher dashboard and manage attendance.'
+      : 'Verify your teacher account and set up your timetable.'}
+  </p>
+
+  {/* Toggle Buttons */}
+  <div
+    className="flex p-1 rounded-xl mb-6"
+    style={{ background: 'var(--color-surface-2)' }}
+  >
             {(['signin', 'signup'] as AuthMode[]).map(m => (
               <button key={m} onClick={() => setMode(m)}
                 className="flex-1 py-2.5 rounded-lg text-sm font-semibold transition-all capitalize"
