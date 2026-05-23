@@ -98,3 +98,12 @@ tmp-*.mjs
 # =========================
 uploads/
 generated/
+
+# =========================
+# Firebase local files
+# =========================
+.firebase/
+firebase-debug.log
+firestore-debug.log
+ui-debug.log
+database-debug.log
