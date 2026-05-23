@@ -332,9 +332,15 @@ export default function AdminDashboardPage() {
         })
 
         const studentIds = new Set<string>()
-        for (const key of sectionKeys) {
+
+
+        for (const key of Array.from(sectionKeys)) {
           const [trade, semesterStr, section] = key.split('::')
+
+
           const sem = Number(semesterStr)
+
+          
           const students = await getStudentsBySection(trade, sem, section)
           students.forEach(student => studentIds.add(student.uid))
         }
