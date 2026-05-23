@@ -10,7 +10,8 @@ import {
   HiOutlineMail,
   HiOutlineLockClosed,
   HiOutlineEye,
-  HiOutlineEyeOff
+  HiOutlineEyeOff,
+  HiOutlineArrowLeft,
 } from 'react-icons/hi'
 
 export default function AdminLoginPage() {
@@ -76,6 +77,14 @@ export default function AdminLoginPage() {
             'linear-gradient(160deg, #2563eb 0%, #1d4ed8 60%, #1e40af 100%)',
         }}
       >
+        <button
+          type="button"
+          onClick={() => router.push('/')}
+          className="absolute top-6 left-6 z-20 w-11 h-11 rounded-full border border-white/20 bg-white/10 backdrop-blur-md flex items-center justify-center text-white hover:bg-white/20 transition-all duration-200"
+        >
+          <HiOutlineArrowLeft size={20} />
+        </button>
+
         <div className="relative z-10 text-white max-w-xs">
           <div className="w-16 h-16 rounded-2xl bg-white/10 flex items-center justify-center mb-8 text-4xl">
             🛡️
@@ -105,44 +114,47 @@ export default function AdminLoginPage() {
         <div className="absolute -top-20 -right-20 w-72 h-72 rounded-full bg-white/5" />
         <div className="absolute -bottom-16 -left-16 w-56 h-56 rounded-full bg-white/5" />
       </div>
- 
-{/* Right form */}
-<div className="flex-1 relative flex items-center justify-center p-6">
 
-  <button
-    type="button"
-    onClick={() => router.push('/')} 
-  className="absolute top-6 left-6 px-4 py-2 rounded-lg text-sm border hover:bg-gray-100 transition"
-  style={{
-    borderColor: 'var(--color-border)',
-    color: 'var(--color-text)',
-    background: 'var(--color-surface)',
-  }}
->
-  ← 
-</button>
+      {/* Right form */}
+      <div className="flex-1 relative flex items-center justify-center p-6">
+        <div className="w-full max-w-md">
 
-<div className="w-full max-w-md"> 
+          {/* Mobile Back Button */}
+          <div className="lg:hidden flex items-center justify-between mb-6">
+            <button
+              type="button"
+              onClick={() => router.push('/')}
+              className="w-10 h-10 rounded-full border flex items-center justify-center"
+              style={{
+                borderColor: 'var(--color-border)',
+                background: 'var(--color-surface)',
+                color: 'var(--color-text)',
+              }}
+            >
+              <HiOutlineArrowLeft size={18} />
+            </button>
+            <div />
+          </div>
+
+          {/* Mobile Logo */}
           <div className="lg:hidden flex items-center gap-2 mb-8">
             <div className="w-9 h-9 rounded-xl flex items-center justify-center text-white font-bold bg-blue-600">
               A
             </div>
-
             <span
               className="font-display font-bold text-xl"
               style={{ color: 'var(--color-text)' }}
             >
-              AttendX 
+              AttendX
             </span>
           </div>
 
-          {/* Back Button + Heading */}
           <h1
-  className="font-display text-2xl font-bold mb-2"
-  style={{ color: 'var(--color-text)' }}
->
-  Admin Sign In
-</h1> 
+            className="font-display text-2xl font-bold mb-2"
+            style={{ color: 'var(--color-text)' }}
+          >
+            Admin Sign In
+          </h1>
 
           <p
             className="text-sm mb-8"
@@ -234,39 +246,35 @@ export default function AdminLoginPage() {
             </button>
           </form>
 
-          
+          <p
+            className="text-center text-sm mt-6"
+            style={{ color: 'var(--color-text-muted)' }}
+          >
+            Teacher?{' '}
+            <Link
+              href="/teacher/login"
+              className="font-medium hover:underline"
+              style={{ color: 'var(--color-primary)' }}
+            >
+              Teacher Portal →
+            </Link>
+          </p>
 
-<p
-  className="text-center text-sm mt-6"
-  style={{ color: 'var(--color-text-muted)' }}
->
-  Teacher?{' '}
-  <Link
-    href="/teacher/login"
-    className="font-medium hover:underline"
-    style={{ color: 'var(--color-primary)' }}
-  >
-    Teacher Portal →
-  </Link>
-</p>
-
-<p
-  className="text-center text-sm mt-2"
-  style={{ color: 'var(--color-text-muted)' }}
->
-  Student?{' '}
-  <Link
-    href="/student/login"
-    className="font-medium hover:underline"
-    style={{ color: 'var(--color-primary)' }}
-  >
-    Student Portal →
-  </Link>
-</p>
-
-        
+          <p
+            className="text-center text-sm mt-2"
+            style={{ color: 'var(--color-text-muted)' }}
+          >
+            Student?{' '}
+            <Link
+              href="/student/login"
+              className="font-medium hover:underline"
+              style={{ color: 'var(--color-primary)' }}
+            >
+              Student Portal →
+            </Link>
+          </p>
         </div>
       </div>
     </div>
   )
-}                                      
+}

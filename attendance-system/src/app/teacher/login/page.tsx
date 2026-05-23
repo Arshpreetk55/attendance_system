@@ -7,7 +7,7 @@ import Loading from '@/components/ui/Loading'
 import toast from 'react-hot-toast'
 import Link from 'next/link'
 import {
-  HiOutlineMail, HiOutlineLockClosed, HiOutlineEye, HiOutlineEyeOff,
+  HiOutlineMail, HiOutlineLockClosed, HiOutlineEye, HiOutlineEyeOff,HiOutlineArrowLeft,
 } from 'react-icons/hi'
 
 type AuthMode = 'signin' | 'signup'
@@ -21,8 +21,8 @@ export default function TeacherLoginPage() {
   const [form, setForm] = useState({ email: '', password: '' })
 
   useEffect(() => {
-    if (!loading && appUser?.role === 'teacher') {
-      router.push('/teacher/dashboard')
+    if (!loading && (appUser?.role === 'teacher' || appUser?.role === 'admin')) {
+      router.replace('/teacher/dashboard')
     }
   }, [appUser, loading, router])
 
@@ -37,7 +37,7 @@ export default function TeacherLoginPage() {
           return
         }
         toast.success(`Welcome back, ${user.displayName}!`)
-        router.push('/teacher/dashboard')
+        router.replace('/teacher/dashboard')
       } else {
         const user = await signIn(form.email, form.password)
         if (user.role !== 'teacher') {
@@ -47,7 +47,7 @@ export default function TeacherLoginPage() {
         toast.success(`Account verified! Let's set up your timetable.`)
         const { updateUser } = await import('@/lib/db')
         await updateUser(user.uid, { showProfileSetup: true } as any)
-        router.push('/teacher/setup')
+        router.replace('/teacher/setup')
       }
     } catch (err: any) {
       const msg = err?.code === 'auth/user-not-found' ? 'No account found. Ask your admin to create one.'
@@ -66,6 +66,13 @@ export default function TeacherLoginPage() {
     <div className="min-h-screen flex" style={{ background: 'var(--color-bg)' }}>
       <div className="hidden lg:flex lg:w-5/12 flex-col items-center justify-center p-12 relative overflow-hidden"
         style={{ background: 'linear-gradient(160deg, #1e3a8a 0%, #2563eb 60%, #0ea5e9 100%)' }}>
+        <button
+          type="button"
+          onClick={() => router.push('/')}
+          className="absolute top-6 left-6 z-20 w-11 h-11 rounded-full border border-white/20 bg-white/10 backdrop-blur-md flex items-center justify-center text-white hover:bg-white/20 transition-all duration-200"
+        >
+          <HiOutlineArrowLeft size={20} />
+        </button>
         <div className="relative z-10 text-white max-w-xs">
           <div className="w-16 h-16 rounded-2xl bg-white/20 flex items-center justify-center mb-8 text-4xl">🎓</div>
           <h2 className="font-display text-4xl font-bold mb-4">Teacher Portal</h2>
@@ -83,19 +90,25 @@ export default function TeacherLoginPage() {
       </div>
 
       <div className="flex-1 relative flex items-center justify-center p-6">
-         <button
-  type="button"
-  onClick={() => router.push('/')}
-  className="absolute top-6 left-6 px-4 py-2 rounded-lg text-sm border hover:bg-gray-100 transition"
-  style={{
-    borderColor: 'var(--color-border)',
-    color: 'var(--color-text)',
-    background: 'var(--color-surface)',
-  }}
->
-  ←
-</button>
         <div className="w-full max-w-md animate-slide-up">
+
+  {/* Mobile Back Button */}
+  <div className="lg:hidden flex items-center justify-between mb-6">
+    <button
+      type="button"
+      onClick={() => router.push('/')}
+      className="w-10 h-10 rounded-full border flex items-center justify-center"
+      style={{
+        borderColor: 'var(--color-border)',
+        background: 'var(--color-surface)',
+        color: 'var(--color-text)',
+      }}
+    >
+      <HiOutlineArrowLeft size={18} />
+    </button>
+
+    <div />
+  </div>
 
   {/* Mobile Logo */}
   <div className="lg:hidden flex items-center gap-2 mb-8">

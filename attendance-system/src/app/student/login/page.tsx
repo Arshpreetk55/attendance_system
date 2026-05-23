@@ -8,7 +8,8 @@ import { collection, query, where, getDocs } from 'firebase/firestore'
 import Loading from '@/components/ui/Loading'
 import toast from 'react-hot-toast'
 import Link from 'next/link'
-import { HiOutlineAcademicCap } from 'react-icons/hi'
+import { HiOutlineAcademicCap, HiOutlineArrowLeft } from 'react-icons/hi'
+
 
 interface TradeOption {
   name: string
@@ -132,10 +133,6 @@ export default function StudentLoginPage() {
     }
   }
 
-  // ✅ FIX: Build email using the same formula as seed-students.mjs
-  //    tradeSlug = trade with all spaces removed, lowercased
-  //    email = rollNumber@tradeSlug-sSemester-section.attendx.edu
-  //    password = rollNumber#2026
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!form.trade || !form.semester || !form.section || !form.rollNumber.trim()) {
@@ -177,6 +174,14 @@ export default function StudentLoginPage() {
         className="hidden lg:flex lg:w-1/2 relative overflow-hidden items-center justify-center p-12"
         style={{ background: 'linear-gradient(135deg, var(--color-sidebar) 0%, var(--color-primary) 100%)' }}
       >
+        <button
+          type="button"
+          onClick={() => router.push('/')}
+          className="absolute top-6 left-6 z-20 w-11 h-11 rounded-full border border-white/20 bg-white/10 backdrop-blur-md flex items-center justify-center text-white hover:bg-white/20 transition-all duration-200"
+        >
+          <HiOutlineArrowLeft size={20} />
+        </button>
+
         <div className="relative z-10 text-white max-w-sm">
           <div className="w-14 h-14 rounded-2xl bg-white/20 flex items-center justify-center mb-8">
             <HiOutlineAcademicCap size={28} className="text-white" />
@@ -207,19 +212,24 @@ export default function StudentLoginPage() {
 
       {/* Right login form */}
       <div className="flex-1 relative flex items-center justify-center p-6">
-        <button
-          type="button"
-          onClick={() => router.push('/')}
-          className="absolute top-6 left-6 px-4 py-2 rounded-lg text-sm border hover:bg-gray-100 transition"
-          style={{
-            borderColor: 'var(--color-border)',
-            color: 'var(--color-text)',
-            background: 'var(--color-surface)',
-          }}
-        >
-          ←
-        </button>
         <div className="w-full max-w-md animate-slide-up">
+
+          {/* Mobile Back Button */}
+          <div className="lg:hidden flex items-center justify-between mb-6">
+            <button
+              type="button"
+              onClick={() => router.push('/')}
+              className="w-10 h-10 rounded-full border flex items-center justify-center"
+              style={{
+                borderColor: 'var(--color-border)',
+                background: 'var(--color-surface)',
+                color: 'var(--color-text)',
+              }}
+            >
+              <HiOutlineArrowLeft size={18} />
+            </button>
+            <div />
+          </div>
 
           {/* Mobile logo */}
           <div className="lg:hidden flex items-center gap-2 mb-8">
@@ -316,8 +326,6 @@ export default function StudentLoginPage() {
               {/* Roll Number */}
               <div>
                 <label className="label">Roll Number</label>
-
-                
                 <input
                   className="input"
                   placeholder={form.section ? 'Enter your roll number' : 'Select section first'}
@@ -326,7 +334,6 @@ export default function StudentLoginPage() {
                   disabled={!form.section}
                   required
                 />
-                  
               </div>
 
               {/* Submit */}

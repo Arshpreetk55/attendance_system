@@ -1,4 +1,4 @@
-// ─── User & Auth Types ──────────────────────────────────────────────────────
+﻿// ─── User & Auth Types ──────────────────────────────────────────────────────
 
 export type UserRole = 'admin' | 'teacher' | 'student'
 
