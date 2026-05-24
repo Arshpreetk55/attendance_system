@@ -86,8 +86,18 @@ export default function AdminLoginPage() {
         </button>
 
         <div className="relative z-10 text-white max-w-xs">
-          <div className="w-16 h-16 rounded-2xl bg-white/10 flex items-center justify-center mb-8 text-4xl">
-            🛡️
+          {/* Replaced text emoji with dark blue SVG icon */}
+          <div className="w-16 h-16 rounded-2xl bg-[#bcd6ff] flex items-center justify-center mb-8 p-3.5">
+            <svg 
+              xmlns="http://www.w3.org/2000/svg" 
+              viewBox="0 0 24 24" 
+              className="w-full h-full"
+            >
+              <path 
+                d="M12 1L3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4z" 
+                fill="#0A2540"
+              />
+            </svg>
           </div>
 
           <h2 className="text-4xl font-bold mb-4">Admin Portal</h2>

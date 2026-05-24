@@ -1,5 +1,5 @@
 'use client'
-
+ 
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { useAuth } from '@/lib/auth-context'
@@ -9,24 +9,24 @@ import Loading from '@/components/ui/Loading'
 import toast from 'react-hot-toast'
 import Link from 'next/link'
 import { HiOutlineAcademicCap, HiOutlineArrowLeft } from 'react-icons/hi'
-
-
+ 
+ 
 interface TradeOption {
   name: string
 }
-
+ 
 export default function StudentLoginPage() {
   const { signIn, appUser, loading } = useAuth()
   const router = useRouter()
-
+ 
   const [trades, setTrades] = useState<TradeOption[]>([])
   const [availableSemesters, setAvailableSemesters] = useState<number[]>([])
   const [availableSections, setAvailableSections] = useState<string[]>([])
-
+ 
   const [loadingTrades, setLoadingTrades] = useState(true)
   const [loadingSemesters, setLoadingSemesters] = useState(false)
   const [loadingSections, setLoadingSections] = useState(false)
-
+ 
   const [form, setForm] = useState({
     trade: '',
     semester: '',
@@ -34,12 +34,12 @@ export default function StudentLoginPage() {
     rollNumber: '',
   })
   const [submitting, setSubmitting] = useState(false)
-
+ 
   // Redirect if already logged in as student
   useEffect(() => {
     if (!loading && appUser?.role === 'student') router.push('/student/dashboard')
   }, [appUser, loading, router])
-
+ 
   // Step 1: Load trades directly from Firestore on mount
   useEffect(() => {
     async function fetchTrades() {
@@ -68,14 +68,14 @@ export default function StudentLoginPage() {
     }
     fetchTrades()
   }, [])
-
+ 
   // Step 2: Trade selected → fetch semesters for that trade from database
   async function handleTradeChange(tradeName: string) {
     setForm({ trade: tradeName, semester: '', section: '', rollNumber: '' })
     setAvailableSemesters([])
     setAvailableSections([])
     if (!tradeName) return
-
+ 
     setLoadingSemesters(true)
     try {
       const snap = await getDocs(
@@ -103,13 +103,13 @@ export default function StudentLoginPage() {
       setLoadingSemesters(false)
     }
   }
-
+ 
   // Step 3: Semester selected → fetch sections for that trade + semester
   async function handleSemesterChange(semester: string) {
     setForm(p => ({ ...p, semester, section: '', rollNumber: '' }))
     setAvailableSections([])
     if (!semester || !form.trade) return
-
+ 
     setLoadingSections(true)
     try {
       const snap = await getDocs(
@@ -132,7 +132,7 @@ export default function StudentLoginPage() {
       setLoadingSections(false)
     }
   }
-
+ 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!form.trade || !form.semester || !form.section || !form.rollNumber.trim()) {
@@ -145,12 +145,12 @@ export default function StudentLoginPage() {
       const tradeSlug   = form.trade.replace(/\s+/g, '').toLowerCase()
       const sectionSlug = form.section.toLowerCase()
       const sem         = form.semester
-
+ 
       const email    = `${rollNumber}@${tradeSlug}-s${sem}-${sectionSlug}.attendx.edu`
       const password = `${rollNumber}#2026`
-
+ 
       const user = await signIn(email, password)
-
+ 
       if (!user || user.role !== 'student') {
         toast.error('No student account found.')
         return
@@ -163,12 +163,12 @@ export default function StudentLoginPage() {
       setSubmitting(false)
     }
   }
-
+ 
   if (loading) return <Loading fullScreen />
-
+ 
   return (
     <div className="min-h-screen flex" style={{ background: 'var(--color-bg)' }}>
-
+ 
       {/* Left decorative panel */}
       <div
         className="hidden lg:flex lg:w-1/2 relative overflow-hidden items-center justify-center p-12"
@@ -181,10 +181,10 @@ export default function StudentLoginPage() {
         >
           <HiOutlineArrowLeft size={20} />
         </button>
-
+ 
         <div className="relative z-10 text-white max-w-sm">
-          <div className="w-14 h-14 rounded-2xl bg-white/20 flex items-center justify-center mb-8">
-            <HiOutlineAcademicCap size={28} className="text-white" />
+          <div className="w-14 h-14 rounded-2xl bg-white/20 flex items-center justify-center mb-8 text-4xl">
+            🎓
           </div>
           <h2 className="font-display text-4xl font-bold mb-4 leading-tight">
             Student Portal
@@ -209,11 +209,11 @@ export default function StudentLoginPage() {
         <div className="absolute -top-20 -right-20 w-64 h-64 rounded-full bg-white/5" />
         <div className="absolute -bottom-10 -left-10 w-48 h-48 rounded-full bg-white/5" />
       </div>
-
+ 
       {/* Right login form */}
       <div className="flex-1 relative flex items-center justify-center p-6">
         <div className="w-full max-w-md animate-slide-up">
-
+ 
           {/* Mobile Back Button */}
           <div className="lg:hidden flex items-center justify-between mb-6">
             <button
@@ -230,7 +230,7 @@ export default function StudentLoginPage() {
             </button>
             <div />
           </div>
-
+ 
           {/* Mobile logo */}
           <div className="lg:hidden flex items-center gap-2 mb-8">
             <div
@@ -239,19 +239,19 @@ export default function StudentLoginPage() {
             >A</div>
             <span className="font-display font-bold text-xl" style={{ color: 'var(--color-text)' }}>AttendX</span>
           </div>
-
+ 
           <h1 className="font-display text-2xl font-bold mb-1" style={{ color: 'var(--color-text)' }}>
             Student Sign In
           </h1>
           <p className="text-sm mb-8" style={{ color: 'var(--color-text-muted)' }}>
             Select your class details to access your attendance
           </p>
-
+ 
           {loadingTrades ? (
             <Loading text="Loading available classes..." />
           ) : (
             <form onSubmit={handleSubmit} className="flex flex-col gap-4">
-
+ 
               {/* Trade */}
               <div>
                 <label className="label">Trade / Branch</label>
@@ -272,7 +272,7 @@ export default function StudentLoginPage() {
                   </p>
                 )}
               </div>
-
+ 
               {/* Semester */}
               <div>
                 <label className="label">Semester</label>
@@ -297,7 +297,7 @@ export default function StudentLoginPage() {
                   ))}
                 </select>
               </div>
-
+ 
               {/* Section */}
               <div>
                 <label className="label">Section</label>
@@ -322,7 +322,7 @@ export default function StudentLoginPage() {
                   ))}
                 </select>
               </div>
-
+ 
               {/* Roll Number */}
               <div>
                 <label className="label">Roll Number</label>
@@ -335,7 +335,7 @@ export default function StudentLoginPage() {
                   required
                 />
               </div>
-
+ 
               {/* Submit */}
               <button
                 type="submit"
@@ -351,7 +351,7 @@ export default function StudentLoginPage() {
               </button>
             </form>
           )}
-
+ 
           <p className="text-center text-sm mt-6" style={{ color: 'var(--color-text-muted)' }}>
             Teacher?{' '}
             <Link href="/teacher/login" className="font-medium hover:underline" style={{ color: 'var(--color-primary)' }}>
@@ -363,3 +363,4 @@ export default function StudentLoginPage() {
     </div>
   )
 }
+ 
