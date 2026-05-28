@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, Suspense } from 'react'
 import { useAuth } from '@/lib/auth-context'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { getStudentsBySection, getStudentsByTrade, addStudent, removeStudent, getAllTrades, getAvailableSemesters } from '@/lib/db'
@@ -53,8 +53,8 @@ function getAllowedTrades(user: AppUser | null): string[] {
   return getTeacherBranches(user).map(code => BRANCH_TRADE[code])
 }
 
-import { Suspense } from 'react'
-import Loading from '@/components/ui/Loading'
+
+
 
 function StudentsPage() {
 
