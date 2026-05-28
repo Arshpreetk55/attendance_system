@@ -151,10 +151,7 @@ export async function getAvailableSubstitutes(params: {
       !pendingUids.has(t.uid)
     )
 
-    console.log('teachers after filter:', teachers.map(t => t.displayName))
-console.log('excludeUid:', excludeUid)
-console.log('absentUids:', Array.from(absentUids))
-console.log('busyUids:', Array.from(busyUids))
+
 
   const scored = await Promise.all(
     teachers.map(async teacher => ({
