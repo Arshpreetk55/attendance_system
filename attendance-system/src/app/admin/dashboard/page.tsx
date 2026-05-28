@@ -1,39 +1,47 @@
 'use client'
 
-import { useState, useEffect, useCallback, useMemo } from 'react'
+import { useState, useEffect, useCallback, useMemo, useRef, useDeferredValue } from 'react'
 import { useRouter } from 'next/navigation'
 import { useAuth } from '@/lib/auth-context'
 import { getDocs, collection, query, where } from 'firebase/firestore'
 import { db } from '@/lib/firebase'
 import {
-  COLLECTIONS, getTodayPeriodsForTeacher, getTimetableByTeacher, getStudentsBySection,
-  getSectionAttendanceByDate, getLowAttendanceStudents,
+  COLLECTIONS, 
+  getTodayPeriodsAndTimetable,
+  getTimetableByTeacher, 
+  getStudentsBySection,
+  getLowAttendanceStudents,
 } from '@/lib/db'
+import { subscribeAdminRequests } from '@/lib/db/adjustments'
 import Loading from '@/components/ui/Loading'
-import StatCard from '@/components/ui/StatCard'
-import ThemeToggle from '@/components/ui/ThemeToggle'
 import Sidebar from '@/components/shared/Sidebar'
 import Navbar from '@/components/shared/Navbar'
 import toast from 'react-hot-toast'
 import Link from 'next/link'
 import {
-  HiOutlineLogout,
   HiOutlineSearch,
   HiOutlineAcademicCap, HiOutlineUsers, HiOutlineFilter,
   HiOutlineX,
+   HiOutlineCheckCircle,
   HiOutlineClipboardCheck, HiOutlineCalendar,
-  HiOutlineExclamationCircle, HiOutlineChartBar,
+  HiOutlineExclamationCircle,
   HiOutlineUserAdd, HiOutlineDocumentReport, HiOutlineClock,
   HiOutlineViewGrid,
+  HiOutlineRefresh, 
+  HiOutlineBookOpen, 
+  HiOutlineBeaker,
 } from 'react-icons/hi'
-import type { AppUser, StudentUser, TeacherUser, Period, LowAttendanceStudent } from '@/types'
 import { todayString, formatDate } from '@/lib/utils'
+import type { AppUser, AdminUser, TeacherUser, StudentUser, Period, LowAttendanceStudent, AdjustmentRequest } from '@/types'
+import AdminAdjustmentsPanel from '@/components/adjustments/AdjustmentsPanel'
+import AdminDirectRequestForm from '@/components/admin/AdminDirectRequestForm'
+import ThemeToggle from '@/components/ui/ThemeToggle'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types & constants
 // ─────────────────────────────────────────────────────────────────────────────
 
-type Tab = 'overview' | 'teachers' | 'students'
+type Tab = 'overview' | 'teachers' | 'students' | 'adjustments'
 type YearFilter = 'all' | '1st' | '2nd' | '3rd'
 type BranchCode = 'CSE' | 'IT' | 'ECE' | 'EE' | 'CE' | 'ME' | 'AE'
 type BranchFilter = 'all' | BranchCode
@@ -50,6 +58,12 @@ const CODE_TO_TRADE: Record<string, string> = {
   'AE':  'Automobile Engineering',
   'AS':  'Applied Science',
 }
+
+// Reverse lookup: trade full name → branch code. Derived once from CODE_TO_TRADE
+// so the two maps stay in sync automatically.
+const TRADE_TO_CODE: Record<string, string> = Object.fromEntries(
+  Object.entries(CODE_TO_TRADE).map(([code, trade]) => [trade, code])
+)
 
 const YEAR_SEMS: Record<YearFilter, number[]> = {
   all:   [1, 2, 3, 4, 5, 6],
@@ -68,9 +82,32 @@ const BRANCH_TRADE: Record<BranchCode, string> = {
   AE:  'Automobile Engineering',
 }
 
+const BRANCH_COLORS: Record<BranchCode, { text: string; bg: string }> = {
+  CSE: { text: '#2563eb', bg: '#2563eb20' },
+  IT:  { text: '#7c3aed', bg: '#7c3aed20' },
+  ECE: { text: '#db2777', bg: '#db277720' },
+  EE:  { text: '#f59e0b', bg: '#f59e0b20' },
+  CE:  { text: '#059669', bg: '#05966920' },
+  ME:  { text: '#ea580c', bg: '#ea580c20' },
+  AE:  { text: '#dc2626', bg: '#dc262620' },
+}
+const DEFAULT_BRANCH_STYLE = { text: '#6b7280', bg: '#6b728020' }
+
+const getBranchStyle = (code: string) =>
+  BRANCH_COLORS[code as BranchCode] ?? DEFAULT_BRANCH_STYLE
+
+const CSE_BRANCH_FILTERS: BranchFilter[] = ['all', 'CSE', 'IT']
+
+
 // ─────────────────────────────────────────────────────────────────────────────
-// MergedTeacher
+// Helpers
 // ─────────────────────────────────────────────────────────────────────────────
+
+// staffUser narrows AppUser to the two roles that carry department/departmentCode.
+// StudentUser is excluded from the union because it has neither field.
+function staffUser(u: AppUser): AdminUser | TeacherUser {
+  return u as AdminUser | TeacherUser
+}
 
 interface MergedTeacher {
   uid: string
@@ -86,22 +123,25 @@ interface MergedTeacher {
 function mergeTeachers(rawTeachers: AppUser[]): MergedTeacher[] {
   const map = new Map<string, MergedTeacher>()
   for (const t of rawTeachers) {
-    const tid: string = (t as any).teacherId ?? t.displayName
+    // Cast to the staff union — rawTeachers contains only teacher/admin role docs
+    // fetched by role filter; StudentUser will never appear here at runtime.
+    const teacher = t as AdminUser | TeacherUser
+    const tid: string = teacher.teacherId?.trim() || teacher.email?.toLowerCase() || teacher.uid
     if (!map.has(tid)) {
       map.set(tid, {
-        uid: t.uid, displayName: t.displayName, email: t.email,
-        teacherId: tid, role: t.role as 'teacher' | 'admin',
+        uid: teacher.uid, displayName: teacher.displayName, email: teacher.email,
+        teacherId: tid, role: teacher.role as MergedTeacher['role'],
         departments: [], departmentCodes: [], allRecords: [],
       })
     }
     const merged = map.get(tid)!
     merged.allRecords.push(t)
-    const dept  = (t as any).department     ?? ''
-    const code  = (t as any).departmentCode ?? ''
+    const dept = teacher.department     ?? ''
+    const code = teacher.departmentCode ?? ''
     if (!merged.departments.includes(dept))     merged.departments.push(dept)
     if (!merged.departmentCodes.includes(code)) merged.departmentCodes.push(code)
-    if (t.role === 'admin') merged.role = 'admin'
-    if (code === 'CSE') merged.email = t.email
+    if (teacher.role === 'admin') merged.role = 'admin'
+    if (!merged.email) merged.email = teacher.email
   }
   return Array.from(map.values()).sort((a, b) => a.displayName.localeCompare(b.displayName))
 }
@@ -112,11 +152,27 @@ function mergeTeachers(rawTeachers: AppUser[]): MergedTeacher[] {
 
 function TeacherDrawer({ teacher, onClose }: { teacher: MergedTeacher; onClose: () => void }) {
   const handlesBoth = teacher.departmentCodes.length > 1
+
+  useEffect(() => {
+    const handleEsc = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
+    window.addEventListener('keydown', handleEsc)
+    return () => window.removeEventListener('keydown', handleEsc)
+  }, [onClose])
+
   return (
-    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center"
-      style={{ background: 'rgba(0,0,0,0.4)' }} onClick={onClose}>
-      <div className="w-full sm:max-w-md rounded-t-2xl sm:rounded-2xl p-6 space-y-4"
-        style={{ background: 'var(--color-surface)' }} onClick={e => e.stopPropagation()}>
+    <div
+      className="fixed inset-0 z-50 flex items-end sm:items-center justify-center"
+      style={{ background: 'rgba(0,0,0,0.4)' }}
+      onClick={onClose}
+    >
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-label={`${teacher.displayName} details`}
+        className="w-full sm:max-w-md rounded-t-2xl sm:rounded-2xl p-6 space-y-4"
+        style={{ background: 'var(--color-surface)' }}
+        onClick={e => e.stopPropagation()}
+      >
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
             <div className="w-12 h-12 rounded-full flex items-center justify-center text-white font-bold text-lg"
@@ -128,7 +184,12 @@ function TeacherDrawer({ teacher, onClose }: { teacher: MergedTeacher; onClose: 
               <p className="text-xs" style={{ color: 'var(--color-text-muted)' }}>{teacher.email}</p>
             </div>
           </div>
-          <button onClick={onClose} className="p-2 rounded-xl hover:opacity-70" style={{ color: 'var(--color-text-muted)' }}>
+          <button
+            onClick={onClose}
+            aria-label="Close teacher details"
+            className="p-2 rounded-xl hover:opacity-70"
+            style={{ color: 'var(--color-text-muted)' }}
+          >
             <HiOutlineX size={20} />
           </button>
         </div>
@@ -150,12 +211,15 @@ function TeacherDrawer({ teacher, onClose }: { teacher: MergedTeacher; onClose: 
               {handlesBoth ? 'Handles Branches' : 'Department'}
             </p>
             <div className="flex flex-wrap gap-2">
-              {teacher.departmentCodes.map(code => (
-                <span key={code} className="text-xs px-3 py-1.5 rounded-full font-semibold"
-                  style={{ background: code === 'CSE' ? '#2563eb20' : '#7c3aed20', color: code === 'CSE' ? '#2563eb' : '#7c3aed' }}>
-                  {code}
-                </span>
-              ))}
+              {teacher.departmentCodes.map(code => {
+                const style = getBranchStyle(code)
+                return (
+                  <span key={code} className="text-xs px-3 py-1.5 rounded-full font-semibold"
+                    style={{ background: style.bg, color: style.text }}>
+                    {code}
+                  </span>
+                )
+              })}
             </div>
           </div>
         </div>
@@ -182,16 +246,26 @@ const navLinks = [
   { href: '/teacher/reports',         label: 'Reports'        },
 ]
 
+const sidebarLinks = [
+  { href: '/admin/dashboard',         label: 'Dashboard',       icon: <HiOutlineViewGrid size={18} /> },
+  { href: '/teacher/mark-attendance', label: 'Mark Attendance', icon: <HiOutlineClipboardCheck size={18} /> },
+  { href: '/teacher/students',        label: 'Students',        icon: <HiOutlineUsers size={18} /> },
+  { href: '/teacher/timetable',       label: 'Timetable',       icon: <HiOutlineCalendar size={18} /> },
+  { href: '/teacher/reports',         label: 'Reports',         icon: <HiOutlineDocumentReport size={18} /> },
+]
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Main page
 // ─────────────────────────────────────────────────────────────────────────────
 
 export default function AdminDashboardPage() {
-  const { appUser, signOut, loading } = useAuth()
+  const { appUser,loading } = useAuth()
   const router = useRouter()
 
   // ── Admin/management state ─────────────────────────────────────────────────
   const [activeTab, setActiveTab]       = useState<Tab>('overview')
+  const [showDirectForm, setShowDirectForm] = useState(false)
+  const [showLowAttendance, setShowLowAttendance] = useState(false)
   const [yearFilter, setYearFilter]     = useState<YearFilter>('all')
   const [branchFilter, setBranchFilter] = useState<BranchFilter>('all')
   const [teachers, setTeachers]         = useState<MergedTeacher[]>([])
@@ -202,15 +276,30 @@ export default function AdminDashboardPage() {
 
   // ── Teacher/class state ────────────────────────────────────────────────────
   const [selectedBranch, setSelectedBranch]               = useState<BranchCode | null>(null)
+  // todayPeriods holds ALL individual period slots for today (not deduplicated)
+  // so todayPeriods.length is the true "periods today" count shown in the stat card.
   const [todayPeriods, setTodayPeriods]                   = useState<Period[]>([])
   const [classStudents, setClassStudents]                 = useState<StudentUser[]>([])
+  // totalStudents = unique students across ALL sections in the full timetable
   const [totalStudents, setTotalStudents]                 = useState(0)
   const [lowAttendanceStudents, setLowAttendanceStudents] = useState<LowAttendanceStudent[]>([])
-  const [todayPct, setTodayPct]                           = useState(0)
+  const [adminRequests, setAdminRequests]                 = useState<AdjustmentRequest[]>([])
+
   const [classLoading, setClassLoading]                   = useState(false)
 
-  const adminDept     = (appUser as any)?.department ?? ''
-  const adminDeptCode = (appUser as any)?.departmentCode ?? ''
+  // ── Race guard: increment on every fetch; stale responses self-discard ─────
+  const classRequestIdRef = useRef(0)
+
+  const rollCollator = useMemo(
+    () => new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' }),
+    []
+  )
+
+  // staffUser() narrows appUser away from StudentUser so department/departmentCode
+  // are accessible without TypeScript errors. Safe because this component is
+  // only reachable by admin-role users (enforced by the auth redirect below).
+  const adminDept     = appUser ? staffUser(appUser).department     ?? '' : ''
+  const adminDeptCode = appUser ? staffUser(appUser).departmentCode ?? '' : ''
   const isAsAdmin     = adminDeptCode === 'AS'
   const isCseAdmin    = adminDeptCode === 'CSE'
   const canFilterBranches = isCseAdmin || isAsAdmin
@@ -224,11 +313,17 @@ export default function AdminDashboardPage() {
         : []
   ), [isAsAdmin, isCseAdmin, adminDeptCode])
 
-  const teacherBranchOptions: BranchFilter[] = isAsAdmin
-    ? ['all']
-    : ['all', 'CSE', 'IT']
+  const resolvedBranch = selectedBranch ?? adminBranches[0] ?? null
 
-  const fetchManagementData = useCallback(async () => {
+  // ── Auth redirect ───────────────────────────────────────────────────────────
+  useEffect(() => {
+    if (loading) return
+    if (!appUser) { router.replace('/admin/login'); return }
+    if (appUser.role !== 'admin') { router.replace('/') }
+  }, [appUser, loading, router])
+
+  // ── Management data fetch ───────────────────────────────────────────────────
+  const fetchManagementData = useCallback(async (mounted: { current: boolean }) => {
     setLoadingData(true)
     try {
       const deptCodes = isAsAdmin
@@ -253,7 +348,6 @@ export default function AdminDashboardPage() {
           }
         }
       }
-      setTeachers(mergeTeachers(rawTeachers))
 
       const tradesToFetch = isAsAdmin
         ? FIRST_YEAR_BRANCHES.map(code => CODE_TO_TRADE[code])
@@ -276,167 +370,211 @@ export default function AdminDashboardPage() {
           }
         }
       }
+
       const finalStudents = isAsAdmin
-        ? allStudents.filter(s => [1, 2].includes((s as any).semester))
+        ? allStudents.filter(s => [1, 2].includes(s.semester ?? -1))
         : allStudents
 
-      finalStudents.sort((a, b) => (a as any).semester - (b as any).semester)
+      finalStudents.sort((a, b) => (a.semester ?? 0) - (b.semester ?? 0))
+
+      if (!mounted.current) return
+      setTeachers(mergeTeachers(rawTeachers))
       setStudents(finalStudents)
     } catch (err) {
       console.error(err)
-      toast.error('Failed to load data')
+      if (mounted.current) toast.error('Failed to load data')
     } finally {
-      setLoadingData(false)
+      if (mounted.current) setLoadingData(false)
     }
   }, [isAsAdmin, isCseAdmin, adminDeptCode, adminDept])
 
-  const fetchClassData = useCallback(async () => {
+  // ── Class data fetch ────────────────────────────────────────────────────────
+  const fetchClassData = useCallback(async (mounted: { current: boolean }) => {
     if (!appUser || !selectedBranch) return
+
+    const requestId = ++classRequestIdRef.current
     setClassLoading(true)
-    setTodayPeriods([])
-    setClassStudents([])
-    setLowAttendanceStudents([])
-    setTodayPct(0)
-    setTotalStudents(0)
+
     try {
-      const allPeriods  = await getTodayPeriodsForTeacher(appUser.uid)
+      const today = todayString()
+
+      const { periods: allPeriods, timetable } = await getTodayPeriodsAndTimetable(appUser.uid)
       const branchTrade = BRANCH_TRADE[selectedBranch]
-      const periods     = allPeriods.filter(p => p.trade === branchTrade)
-      setTodayPeriods(periods)
 
-      const sectionSet = new Set<string>()
-      let allStds: StudentUser[] = []
-      const lowStdsAccum: LowAttendanceStudent[] = []
+      // allBranchPeriods = every individual period slot today for this branch.
+      // This is what powers the "Today's Periods" stat — the raw count of slots,
+      // not deduplicated, so e.g. 3 slots in Sem-3A + 2 slots in Sem-4B = 5.
+      const allBranchPeriods = allPeriods.filter(p => p.trade === branchTrade)
+      
 
-      for (const period of periods) {
+      // uniquePeriods deduplicates by section — used only for Firestore queries
+      // (students, low attendance, attendance %) so we don't fetch the same
+      // section multiple times when the same section appears in multiple slots.
+      const sectionMap = new Map<string, Period>()
+      for (const period of allBranchPeriods) {
         const key = `${period.trade}-${period.semester}-${period.section}`
-        if (!sectionSet.has(key)) {
-          sectionSet.add(key)
-          const stds    = await getStudentsBySection(period.trade, period.semester, period.section)
-          const lowStds = await getLowAttendanceStudents(period.trade, period.semester, period.section)
-          allStds = [...allStds, ...stds]
-          const ids = new Set(lowStdsAccum.map(s => s.studentId))
-          lowStdsAccum.push(...lowStds.filter(s => !ids.has(s.studentId)))
+        if (!sectionMap.has(key)) sectionMap.set(key, period)
+      }
+      const uniquePeriods = Array.from(sectionMap.values())
+
+      // Cache student lists by section key on first fetch so the timetable
+      // aggregation pass below can reuse them instead of issuing duplicate
+      // getStudentsBySection() calls.
+      const sectionStudentCache = new Map<string, StudentUser[]>()
+
+      const sectionResults = await Promise.all(
+        uniquePeriods.map(async (period) => {
+          const cacheKey = `${period.trade}::${period.semester}::${period.section}`
+          const [stds, lowStds] = await Promise.all([
+            getStudentsBySection(period.trade, period.semester, period.section),
+            getLowAttendanceStudents(period.trade, period.semester, period.section),
+          ])
+          sectionStudentCache.set(cacheKey, stds)
+          return { stds, lowStds }
+        })
+      )
+
+      const seenStudents = new Set<string>()
+      const allStds: StudentUser[] = []
+      const lowStdsAccum: LowAttendanceStudent[] = []
+      const seenLow = new Set<string>()
+      for (const { stds, lowStds } of sectionResults) {
+        for (const s of stds) {
+          if (!seenStudents.has(s.uid)) { seenStudents.add(s.uid); allStds.push(s) }
+        }
+        for (const s of lowStds) {
+          if (!seenLow.has(s.studentId)) { seenLow.add(s.studentId); lowStdsAccum.push(s) }
         }
       }
-      setClassStudents(allStds)
-      setLowAttendanceStudents(lowStdsAccum)
 
-      const timetable = await getTimetableByTeacher(appUser.uid)
+      
+
+      // totalStudents = unique students across ALL sections in the full timetable,
+      // not just today's. This gives the true "students I'm responsible for" count.
+      
+      let totalCount  = 0
       if (timetable) {
         const sectionKeys = new Set<string>()
         timetable.schedule.forEach(day => {
-          day.periods.forEach(period => {
-            sectionKeys.add(`${period.trade}::${period.semester}::${period.section}`)
+          day.periods.forEach(p => {
+            sectionKeys.add(`${p.trade}::${p.semester}::${p.section}`)
           })
         })
 
-        const studentIds = new Set<string>()
-
-
-        for (const key of Array.from(sectionKeys)) {
-          const [trade, semesterStr, section] = key.split('::')
-
-
-          const sem = Number(semesterStr)
-
-          
-          const students = await getStudentsBySection(trade, sem, section)
-          students.forEach(student => studentIds.add(student.uid))
-        }
-        setTotalStudents(studentIds.size)
-      } else {
-        setTotalStudents(0)
+        // Reuse cached student lists; only fetch sections not already loaded
+        // during the period aggregation pass above.
+        const studentIdSets = await Promise.all(
+          Array.from(sectionKeys).map(async (key) => {
+            const cached = sectionStudentCache.get(key)
+            if (cached) return cached.map(s => s.uid)
+            const [trade, semesterStr, section] = key.split('::')
+            const stds = await getStudentsBySection(trade, Number(semesterStr), section)
+            return stds.map(s => s.uid)
+          })
+        )
+        totalCount = new Set(studentIdSets.flat()).size
       }
 
-      if (periods.length > 0 && allStds.length > 0) {
-        const todayRecs     = await getSectionAttendanceByDate(todayString(), periods[0].trade, periods[0].semester, periods[0].section)
-        const totalMarked   = todayRecs.reduce((a, r) => a + r.students.filter(s => s.status === 'present').length, 0)
-        const totalExpected = todayRecs.length * allStds.length
-        setTodayPct(totalExpected > 0 ? Math.round((totalMarked / totalExpected) * 100) : 0)
-      }
+      if (!mounted.current || requestId !== classRequestIdRef.current) return
+      
+      // Store the full undeduped list so the stat card shows real period count
+      setTodayPeriods(allBranchPeriods)
+      setClassStudents(allStds)
+      setLowAttendanceStudents(lowStdsAccum)
+      
+      
+      
+      
+      setTotalStudents(totalCount)
     } catch (err) {
       console.error(err)
-      toast.error('Failed to load class data')
+      if (mounted.current && requestId === classRequestIdRef.current) {
+        toast.error('Failed to load class data')
+      }
     } finally {
-      setClassLoading(false)
+      if (mounted.current && requestId === classRequestIdRef.current) {
+        setClassLoading(false)
+      }
     }
   }, [appUser, selectedBranch])
 
-  // Sidebar links (inside component so JSX icons work)
-  const sidebarLinks = [
-    { href: '/admin/dashboard',         label: 'Dashboard',       icon: <HiOutlineViewGrid size={18} /> },
-    { href: '/teacher/mark-attendance', label: 'Mark Attendance', icon: <HiOutlineClipboardCheck size={18} /> },
-    { href: '/teacher/students',        label: 'Students',        icon: <HiOutlineUsers size={18} /> },
-    { href: '/teacher/timetable',       label: 'Timetable',       icon: <HiOutlineCalendar size={18} /> },
-    { href: '/teacher/reports',         label: 'Reports',         icon: <HiOutlineDocumentReport size={18} /> },
-  ]
-
-  // Auth guard
-  useEffect(() => {
-    if (!loading && !appUser)                { router.push('/admin/login'); return }
-    if (!loading && appUser?.role !== 'admin') { router.push('/'); return }
-  }, [appUser, loading, router])
-
-  // Auto-select branch
   useEffect(() => {
     if (!appUser) return
-    if (adminBranches.length === 1) setSelectedBranch(adminBranches[0])
-    else if (adminBranches.length > 1 && !selectedBranch) setSelectedBranch(adminBranches[0])
+    if (adminBranches.length > 0 && (!selectedBranch || !adminBranches.includes(selectedBranch))) {
+      setSelectedBranch(adminBranches[0])
+    }
   }, [appUser, adminBranches, selectedBranch])
 
   useEffect(() => {
-    if (activeTab === 'teachers' && isAsAdmin && branchFilter !== 'all') {
-      setBranchFilter('all')
-    }
-  }, [activeTab, isAsAdmin, branchFilter])
+    if (!adminDeptCode) return
+    const today = todayString()
+    const unsub = subscribeAdminRequests(adminDeptCode, today, reqs => {
+      setAdminRequests(reqs as AdjustmentRequest[])
+    })
+    return () => unsub()
+  }, [adminDeptCode])
 
-  useEffect(() => {
-    if (isAsAdmin && yearFilter !== 'all') {
-      setYearFilter('all')
-    }
-  }, [isAsAdmin, yearFilter])
+  const effectiveYearFilter:   YearFilter   = isAsAdmin ? 'all' : yearFilter
+  const effectiveBranchFilter: BranchFilter =
+    (isAsAdmin && activeTab === 'teachers') ? 'all' : branchFilter
 
   useEffect(() => {
     if (appUser?.role !== 'admin') return
-    fetchManagementData()
+    const mounted = { current: true }
+    fetchManagementData(mounted)
+    return () => { mounted.current = false }
   }, [appUser, fetchManagementData])
 
   useEffect(() => {
     if (!appUser || !selectedBranch) return
-    fetchClassData()
+    const mounted = { current: true }
+    fetchClassData(mounted)
+    return () => { mounted.current = false }
   }, [appUser, selectedBranch, fetchClassData])
 
-  // ── Filtered teachers ──────────────────────────────────────────────────────
-  const filteredTeachers = teachers.filter(t => {
-    const matchSearch = t.displayName.toLowerCase().includes(search.toLowerCase()) || t.teacherId.toLowerCase().includes(search.toLowerCase())
-    const matchBranch = branchFilter === 'all' || isAsAdmin || t.departmentCodes.includes(branchFilter)
+
+  const normalizedSearch = useMemo(() => search.trim().toLowerCase(), [search])
+  const deferredSearch   = useDeferredValue(normalizedSearch)
+
+  const filteredTeachers = useMemo(() => teachers.filter(t => {
+    const matchSearch = t.displayName.toLowerCase().includes(deferredSearch) || t.teacherId.toLowerCase().includes(deferredSearch)
+    const matchBranch = effectiveBranchFilter === 'all' || isAsAdmin || t.departmentCodes.includes(effectiveBranchFilter)
     return matchSearch && matchBranch
-  })
+  }), [teachers, deferredSearch, effectiveBranchFilter, isAsAdmin])
 
-  // ── Filtered students ──────────────────────────────────────────────────────
-  const sems = YEAR_SEMS[yearFilter]
-  const filteredStudents = students
-    .filter(s => sems.includes((s as any).semester))
-    .filter(s => {
-      let matchCode: string | null = null
-      for (const [code, trade] of Object.entries(CODE_TO_TRADE)) {
-        if (trade === (s as any).trade) { matchCode = code; break }
-      }
-      if (isCseAdmin || isAsAdmin) return branchFilter === 'all' || matchCode === branchFilter
-      return matchCode === adminDeptCode
-    })
-    .filter(s =>
-      s.displayName?.toLowerCase().includes(search.toLowerCase()) ||
-      (s as any).rollNumber?.toLowerCase().includes(search.toLowerCase())
-    )
+  const filteredStudents = useMemo(() => {
+    const sems = YEAR_SEMS[effectiveYearFilter]
+    return students
+      .filter(s => sems.includes(s.semester ?? -1))
+      .filter(s => {
+        const matchCode = TRADE_TO_CODE[s.trade ?? ''] ?? null
+        if (isCseAdmin || isAsAdmin) return effectiveBranchFilter === 'all' || matchCode === effectiveBranchFilter
+        return matchCode === adminDeptCode
+      })
+      .filter(s =>
+        s.displayName?.toLowerCase().includes(deferredSearch) ||
+        s.rollNumber?.toLowerCase().includes(deferredSearch)
+      )
+  }, [students, effectiveYearFilter, effectiveBranchFilter, isCseAdmin, isAsAdmin, adminDeptCode, deferredSearch])
 
-  const groupedStudents = filteredStudents.reduce((acc, s) => {
-    const key = `${(s as any).trade} — Sem ${(s as any).semester} — Sec ${(s as any).section}`
+  const sortedFilteredStudents = useMemo(
+    () => [...filteredStudents].sort((a, b) => rollCollator.compare(a.rollNumber ?? '', b.rollNumber ?? '')),
+    [filteredStudents, rollCollator]
+  )
+
+  const groupedStudents = useMemo(() => sortedFilteredStudents.reduce((acc, s) => {
+    const key = `${s.trade}::${s.semester}::${s.section}`
     if (!acc[key]) acc[key] = []
     acc[key].push(s)
     return acc
-  }, {} as Record<string, StudentUser[]>)
+  }, {} as Record<string, StudentUser[]>), [sortedFilteredStudents])
+
+  const sortedGroupedStudents = useMemo(
+    () => Object.entries(groupedStudents).sort(),
+    [groupedStudents]
+  )
+
+  const formattedToday = formatDate(new Date())
 
   if (loading || !appUser) return <Loading fullScreen />
 
@@ -450,169 +588,184 @@ export default function AdminDashboardPage() {
   return (
     <div className="min-h-screen flex" style={{ background: 'var(--color-bg)' }}>
 
-      {/* Sidebar */}
       <Sidebar links={sidebarLinks} portalName="Admin" />
 
       <div className="flex-1 flex flex-col min-w-0">
 
-        {/* Navbar */}
-        <Navbar portalName="Admin" links={navLinks} />
+        <Navbar portalName="Admin" links={navLinks} hideThemeToggle />
 
         <main className="flex-1 p-4 sm:p-6 space-y-6">
 
-          {/* Teacher detail drawer */}
           {selectedTeacher && <TeacherDrawer teacher={selectedTeacher} onClose={() => setSelectedTeacher(null)} />}
 
           {/* ── TAB BAR ───────────────────────────────────────────────────── */}
-          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
-            <div className="flex p-1 rounded-xl gap-1" style={{ background: 'var(--color-surface-2)' }}>
-              {([
-                { key: 'overview',  label: 'My Classes', icon: <HiOutlineViewGrid size={15} /> },
-                { key: 'teachers',  label: 'Teachers',   icon: <HiOutlineAcademicCap size={15} />, count: uniqueTeacherCount },
-                { key: 'students',  label: 'Students',   icon: <HiOutlineUsers size={15} />,       count: students.length },
-              ] as const).map(tab => (
-                <button key={tab.key} onClick={() => { setActiveTab(tab.key); setSearch('') }}
-                  className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-semibold transition-all"
-                  style={{
-                    background: activeTab === tab.key ? 'var(--color-primary)' : 'transparent',
-                    color:      activeTab === tab.key ? 'white' : 'var(--color-text-muted)',
-                  }}>
-                  {tab.icon} {tab.label}
-                  {'count' in tab && (
-                    <span className="text-xs px-1.5 py-0.5 rounded-full"
-                      style={{
-                        background: activeTab === tab.key ? 'rgba(255,255,255,0.25)' : 'var(--color-border)',
-                        color:      activeTab === tab.key ? 'white' : 'var(--color-text-muted)',
-                      }}>
-                      {tab.count}
-                    </span>
-                  )}
-                </button>
-              ))}
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <p className="text-2xl sm:text-3xl font-bold" style={{ color: 'var(--color-text)' }}>
+                {appUser.displayName}
+              </p>
+              <p className="text-sm mt-1" style={{ color: 'var(--color-text-muted)' }}>
+                {resolvedBranch ? BRANCH_TRADE[resolvedBranch] : adminDept} · {formattedToday}
+              </p>
             </div>
+            <ThemeToggle showColorTheme />
           </div>
+
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+  <div role="tablist" aria-label="Dashboard sections" className="flex p-1 rounded-xl gap-1" style={{ background: 'var(--color-surface-2)' }}>
+    {([
+      { key: 'overview',     label: 'My Classes',   icon: <HiOutlineViewGrid size={15}/> },
+      { key: 'teachers',     label: 'Teachers',     icon: <HiOutlineAcademicCap size={15}/> },
+      { key: 'students',     label: 'Students',     icon: <HiOutlineUsers size={15}/> },
+      { key: 'adjustments',  label: 'Adjustments',  icon: <HiOutlineRefresh size={15}/> },
+    ] as const).map(tab => (
+      <button
+        key={tab.key}
+        role="tab"
+        aria-selected={activeTab === tab.key}
+        onClick={() => { setActiveTab(tab.key); setSearch('') }}
+        className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-semibold transition-all"
+        style={{
+          background: activeTab === tab.key ? 'var(--color-primary)' : 'transparent',
+          color:      activeTab === tab.key ? 'white' : 'var(--color-text-muted)',
+        }}>
+        {tab.icon} {tab.label}
+      </button>
+    ))}
+  </div>
+</div>
 
           {/* ── OVERVIEW TAB ──────────────────────────────────────────────── */}
           {activeTab === 'overview' && (
             <div className="space-y-6">
 
-              {/* Header row */}
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <p className="text-sm" style={{ color: 'var(--color-text-muted)' }}>
-                  {appUser.displayName} · {selectedBranch ? BRANCH_TRADE[selectedBranch] : adminDept} · {formatDate(new Date())}
-                </p>
-                <div className="flex items-center gap-3">
-                  <Link href="/teacher/mark-attendance" className="btn-primary py-2 text-xs flex items-center gap-2">
-                    <HiOutlineClipboardCheck size={15} /> Mark Attendance
-                  </Link>
-                </div>
-              </div>
-
-              {/* ── STAT CARDS (clickable) ─────────────────────────────── */}
-              <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-                <div onClick={() => setActiveTab('students')} className="cursor-pointer hover:opacity-80 transition-opacity">
-                  <StatCard title="Total Students"     value={totalStudents}               icon={<HiOutlineUsers />}             color="blue" />
-                </div>
-                <Link href="/teacher/timetable" className="hover:opacity-80 transition-opacity">
-                  <StatCard title="Today's Periods"    value={todayPeriods.length}           icon={<HiOutlineClock />}             color="purple" />
-                </Link>
-                <Link href="/teacher/mark-attendance" className="hover:opacity-80 transition-opacity">
-                  <StatCard title="Today's Attendance" value={`${todayPct}%`}               icon={<HiOutlineClipboardCheck />}
-                    color={todayPct >= 85 ? 'green' : todayPct >= 75 ? 'yellow' : 'red'} />
-                </Link>
-                <div onClick={() => setActiveTab('overview')} className="cursor-pointer hover:opacity-80 transition-opacity">
-                  <StatCard title="Low Attendance"     value={lowAttendanceStudents.length}  icon={<HiOutlineExclamationCircle />}
-                    color={lowAttendanceStudents.length > 0 ? 'red' : 'green'}
-                    subtitle={lowAttendanceStudents.length > 0 ? 'Below 75%' : 'All clear!'} />
-                </div>
+              
+               
+{/* ── STAT CARDS (clickable) ─────────────────────────────── */}
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                
+  {([
+  {
+    label: 'Total Students',
+    value: totalStudents,
+    color: '#2563eb',
+    icon: <HiOutlineUsers size={18} />,
+    onClick: () => setActiveTab('students'),
+  },
+  {
+    label: "Today's Periods",
+    value: todayPeriods.length,
+    color: '#8b5cf6',
+    icon: <HiOutlineClock size={18} />,
+     onClick: () => document.getElementById('todays-schedule')?.scrollIntoView({ behavior: 'smooth', block: 'start' }),
+  },
+  {
+    label: 'Adjustments',
+    value: adminRequests.length,
+    color: '#10b981',
+    icon: <HiOutlineRefresh size={18} />,
+    onClick: () => setActiveTab('adjustments'),
+  },
+  {
+    label: 'Low Attendance',
+    value: lowAttendanceStudents.length,
+    color: '#ef4444',
+    icon: <HiOutlineExclamationCircle size={18} />,
+    onClick: () => setShowLowAttendance(true),
+  },
+] as const) .map(card => (
+  <div
+    key={card.label}
+    onClick={card.onClick ?? undefined}
+    className="card p-4 flex items-center gap-3"
+    style={{
+      borderLeft: `4px solid ${card.color}`,
+      cursor: card.onClick ? 'pointer' : 'default',
+    }}>
+    <div className="w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0"
+      style={{ background: `${card.color}20`, color: card.color }}>
+      {card.icon}
+    </div>
+    <div>
+      <p className="text-lg font-bold" style={{ color: 'var(--color-text)' }}>{card.value}</p>
+      <p className="text-sm" style={{ color: 'var(--color-text-muted)' }}>{card.label}</p>
+    </div>
+  </div>
+))}
               </div>
 
               {/* Today's Schedule */}
-              <div className="card p-5">
-                <div className="flex items-center justify-between mb-4">
-                  <h2 className="section-title">Today&apos;s Schedule</h2>
-                  <Link href="/teacher/mark-attendance" className="btn-primary py-2 text-xs flex items-center gap-2">
-                    <HiOutlineClipboardCheck size={15} /> Mark Attendance
-                  </Link>
-                </div>
-                {classLoading ? (
-                  <div className="text-center py-8" style={{ color: 'var(--color-text-muted)' }}>Loading schedule...</div>
-                ) : todayPeriods.length === 0 ? (
-                  <div className="text-center py-8" style={{ color: 'var(--color-text-muted)' }}>
-                    <HiOutlineCalendar size={32} className="mx-auto mb-2 opacity-50" />
-                    <p className="text-sm">No classes scheduled yet.</p>
-                    <Link href="/teacher/setup" className="text-sm mt-1 block" style={{ color: 'var(--color-primary)' }}>
-                      Set up your timetable →
-                    </Link>
-                  </div>
-                ) : (
-                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-                    {todayPeriods.map(period => (
-                      <div key={period.id} className="flex items-center gap-3 p-3 rounded-xl border"
-                        style={{ background: 'var(--color-surface-2)', borderColor: 'var(--color-border)' }}>
-                        <div className="w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0"
-                          style={{ background: selectedBranch === 'CSE' ? '#2563eb' : '#7c3aed', color: 'white' }}>
-                          <HiOutlineClock size={18} />
-                        </div>
-                        <div>
-                          <p className="text-sm font-semibold" style={{ color: 'var(--color-text)' }}>{period.subjectName}</p>
-                          <p className="text-xs" style={{ color: 'var(--color-text-muted)' }}>
-                            {period.startTime}–{period.endTime} · Sem {period.semester}{period.section}
-                            {period.room && ` · ${period.room}`}
-                          </p>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
+            {/* Today's Schedule */}
+<div className="card p-5" id="todays-schedule">
+  <div className="flex items-center justify-between mb-4">
+    <div>
+      <h2 className="section-title">Today&apos;s Schedule</h2>
+      <p className="text-xs mt-0.5" style={{ color: 'var(--color-text-muted)' }}>
+        {todayPeriods.length} period{todayPeriods.length !== 1 ? 's' : ''} · {formattedToday}
+      </p>
+    </div>
+    <Link href="/teacher/mark-attendance" className="btn-primary py-2 text-xs flex items-center gap-2">
+      <HiOutlineClipboardCheck size={15} /> Mark Attendance
+    </Link>
+  </div>
 
-              {/* Low Attendance Alert */}
-              {lowAttendanceStudents.length > 0 && (
-                <div className="card p-5">
-                  <h2 className="section-title mb-4 flex items-center gap-2">
-                    <HiOutlineExclamationCircle size={20} className="text-red-500" />
-                    Students Below 75% Attendance
-                  </h2>
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-sm">
-                      <thead>
-                        <tr style={{ background: 'var(--color-surface-2)' }}>
-                          {['Roll No.', 'Name', 'Attendance %', 'Weak Subjects'].map(h => (
-                            <th key={h} className="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wider"
-                              style={{ color: 'var(--color-text-muted)' }}>{h}</th>
-                          ))}
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y" style={{ borderColor: 'var(--color-border)' }}>
-                        {lowAttendanceStudents.map(s => (
-                          <tr key={s.studentId} style={{ background: 'var(--color-surface)' }}>
-                            <td className="px-4 py-3 font-mono text-sm" style={{ color: 'var(--color-text)' }}>{s.rollNumber}</td>
-                            <td className="px-4 py-3 font-medium" style={{ color: 'var(--color-text)' }}>{s.name}</td>
-                            <td className="px-4 py-3">
-                              <span className={`font-bold ${s.percentage < 60 ? 'text-red-600' : 'text-yellow-600'}`}>
-                                {s.percentage}%
-                              </span>
-                            </td>
-                            <td className="px-4 py-3">
-                              <div className="flex flex-wrap gap-1">
-                                {s.subjectBreakdown.filter(sb => sb.percentage < 75).map(sb => (
-                                  <span key={sb.subject}
-                                    className="text-xs px-2 py-0.5 rounded-full bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400">
-                                    {sb.subject}: {sb.percentage}%
-                                  </span>
-                                ))}
-                              </div>
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
+  {classLoading ? (
+    <div className="text-center py-8" style={{ color: 'var(--color-text-muted)' }}>Loading schedule...</div>
+  ) : todayPeriods.length === 0 ? (
+    <div className="text-center py-8" style={{ color: 'var(--color-text-muted)' }}>
+      <HiOutlineCalendar size={32} className="mx-auto mb-2 opacity-50" />
+      <p className="text-sm">No classes scheduled yet.</p>
+      <Link href="/teacher/setup?returnTo=/admin/dashboard" className="text-sm mt-1 block" style={{ color: 'var(--color-primary)' }}>
+        Set up your timetable →
+      </Link>
+    </div>
+  ) : (
+    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+      {todayPeriods.map((period, idx) => {
+        const colors = ['#2563eb', '#7c3aed', '#db2777', '#f59e0b', '#059669', '#ea580c']
+        const color = colors[idx % colors.length]
+        return (
+          <div key={period.id}
+            className="rounded-xl p-4 flex flex-col gap-2 border"
+            style={{ background: `${color}10`, borderColor: `${color}30` }}>
+            <div className="flex items-center gap-2">
+              <div className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0"
+  style={{ background: color, color: 'white' }}>
+  {period.classType === 'practical' ? <HiOutlineBeaker size={16} /> : <HiOutlineBookOpen size={16} />}
+</div>
+              <span className="text-xs font-bold px-2 py-0.5 rounded-full"
+                style={{ background: `${color}20`, color }}>
+                {period.startTime}–{period.endTime}
+              </span>
+            </div>
+            <p className="text-sm font-bold leading-tight" style={{ color: 'var(--color-text)' }}>
+              {period.subjectName}
+            </p>
+            <div className="flex items-center gap-1.5 flex-wrap">
+              <span className="text-xs px-2 py-0.5 rounded-full font-semibold"
+                style={{ background: 'var(--color-surface-2)', color: 'var(--color-text-muted)' }}>
+                Sem {period.semester}{period.section}
+              </span>
+              {period.room && (
+                <span className="text-xs px-2 py-0.5 rounded-full font-semibold"
+                  style={{ background: 'var(--color-surface-2)', color: 'var(--color-text-muted)' }}>
+                  {period.room}
+                </span>
               )}
+              <span className="text-xs px-2 py-0.5 rounded-full font-semibold capitalize"
+                style={{ background: `${color}20`, color }}>
+                {period.classType ?? 'lecture'}
+              </span>
+            </div>
+          </div>
+        )
+      })}
+    </div>
+  )}
+</div>
 
-              {/* Quick Actions */}
+
+
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                 {([
                   { href: '/teacher/students',        Icon: HiOutlineUserAdd,        label: 'Manage Students'  },
@@ -636,21 +789,25 @@ export default function AdminDashboardPage() {
           {/* ── TEACHERS TAB ──────────────────────────────────────────────── */}
           {activeTab === 'teachers' && (
             <>
-              {/* Filter bar */}
               <div className="flex items-center gap-3 flex-wrap">
                 {canFilterBranches && !isAsAdmin && (
                   <div className="flex items-center gap-1 p-1 rounded-xl" style={{ background: 'var(--color-surface-2)' }}>
                     <HiOutlineFilter size={14} className="ml-2" style={{ color: 'var(--color-text-muted)' }} />
-                    {teacherBranchOptions.map(b => (
-                      <button key={b} onClick={() => setBranchFilter(b)}
-                        className="px-3 py-1.5 rounded-lg text-xs font-semibold transition-all"
-                        style={{
-                          background: branchFilter === b ? (b === 'CSE' ? '#2563eb' : b === 'IT' ? '#7c3aed' : 'var(--color-primary)') : 'transparent',
-                          color:      branchFilter === b ? 'white' : 'var(--color-text-muted)',
-                        }}>
-                        {b === 'all' ? 'All Branches' : b}
-                      </button>
-                    ))}
+                    {CSE_BRANCH_FILTERS.map(b => {
+                      const style = b === 'all' ? null : getBranchStyle(b)
+                      return (
+                        <button key={b} onClick={() => setBranchFilter(b)}
+                          className="px-3 py-1.5 rounded-lg text-xs font-semibold transition-all"
+                          style={{
+                            background: branchFilter === b
+                              ? (b === 'all' ? 'var(--color-primary)' : style?.bg)
+                              : 'transparent',
+                            color: branchFilter === b ? 'white' : 'var(--color-text-muted)',
+                          }}>
+                          {b === 'all' ? 'All Branches' : b}
+                        </button>
+                      )
+                    })}
                   </div>
                 )}
                 <div className="relative flex-1 sm:w-56">
@@ -665,13 +822,16 @@ export default function AdminDashboardPage() {
                   style={{ borderColor: 'var(--color-border)', background: 'var(--color-surface-2)' }}>
                   <p className="text-sm font-semibold" style={{ color: 'var(--color-text-muted)' }}>
                     {filteredTeachers.length} staff member{filteredTeachers.length !== 1 ? 's' : ''}
-                    {branchFilter !== 'all' ? ` in ${branchFilter}` : ` in ${adminDept}`}
+                    {effectiveBranchFilter !== 'all' ? ` in ${effectiveBranchFilter}` : ` in ${adminDept}`}
                   </p>
-                  {multibranchCount > 0 && (
-                    <span className="text-xs px-2 py-1 rounded-full" style={{ background: '#2563eb20', color: '#2563eb' }}>
-                      {multibranchCount} handle both branches
-                    </span>
-                  )}
+                  {multibranchCount > 0 && (() => {
+                    const style = getBranchStyle('CSE')
+                    return (
+                      <span className="text-xs px-2 py-1 rounded-full" style={{ background: style.bg, color: style.text }}>
+                        {multibranchCount} handle both branches
+                      </span>
+                    )
+                  })()}
                 </div>
 
                 {loadingData ? (
@@ -690,7 +850,7 @@ export default function AdminDashboardPage() {
                       </thead>
                       <tbody>
                         {filteredTeachers.map((teacher, i) => (
-                          <tr key={teacher.uid}
+                          <tr key={teacher.teacherId}
                             className="border-b hover:opacity-90 cursor-pointer"
                             style={{ borderColor: 'var(--color-border)' }}
                             onClick={() => setSelectedTeacher(teacher)}>
@@ -708,12 +868,15 @@ export default function AdminDashboardPage() {
                             <td className="px-4 py-3 text-xs font-mono" style={{ color: 'var(--color-text)' }}>{teacher.teacherId}</td>
                             <td className="px-4 py-3">
                               <div className="flex gap-1 flex-wrap">
-                                {teacher.departmentCodes.map(code => (
-                                  <span key={code} className="text-xs px-2 py-0.5 rounded-full font-semibold"
-                                    style={{ background: code === 'CSE' ? '#2563eb20' : '#7c3aed20', color: code === 'CSE' ? '#2563eb' : '#7c3aed' }}>
-                                    {code}
-                                  </span>
-                                ))}
+                                {teacher.departmentCodes.map(code => {
+                                  const style = getBranchStyle(code)
+                                  return (
+                                    <span key={code} className="text-xs px-2 py-0.5 rounded-full font-semibold"
+                                      style={{ background: style.bg, color: style.text }}>
+                                      {code}
+                                    </span>
+                                  )
+                                })}
                               </div>
                             </td>
                             <td className="px-4 py-3">
@@ -734,7 +897,6 @@ export default function AdminDashboardPage() {
           {/* ── STUDENTS TAB ──────────────────────────────────────────────── */}
           {activeTab === 'students' && (
             <div className="space-y-4">
-              {/* Filter bar */}
               <div className="flex items-center gap-3 flex-wrap">
                 {canFilterBranches && (
                   <div className="flex items-center gap-1 p-1 rounded-xl" style={{ background: 'var(--color-surface-2)' }}>
@@ -742,17 +904,22 @@ export default function AdminDashboardPage() {
                     {(
                       isAsAdmin
                         ? (['all', ...FIRST_YEAR_BRANCHES] as BranchFilter[])
-                        : (['all', 'CSE', 'IT'] as BranchFilter[])
-                    ).map(b => (
-                      <button key={b} onClick={() => setBranchFilter(b)}
-                        className="px-3 py-1.5 rounded-lg text-xs font-semibold transition-all"
-                        style={{
-                          background: branchFilter === b ? (b === 'CSE' ? '#2563eb' : b === 'IT' ? '#7c3aed' : 'var(--color-primary)') : 'transparent',
-                          color:      branchFilter === b ? 'white' : 'var(--color-text-muted)',
-                        }}>
-                        {b === 'all' ? 'All Branches' : b}
-                      </button>
-                    ))}
+                        : CSE_BRANCH_FILTERS
+                    ).map(b => {
+                      const style = b === 'all' ? null : getBranchStyle(b)
+                      return (
+                        <button key={b} onClick={() => setBranchFilter(b)}
+                          className="px-3 py-1.5 rounded-lg text-xs font-semibold transition-all"
+                          style={{
+                            background: branchFilter === b
+                              ? (b === 'all' ? 'var(--color-primary)' : style?.bg)
+                              : 'transparent',
+                            color: branchFilter === b ? 'white' : 'var(--color-text-muted)',
+                          }}>
+                          {b === 'all' ? 'All Branches' : b}
+                        </button>
+                      )
+                    })}
                   </div>
                 )}
                 {!isAsAdmin && (
@@ -776,12 +943,12 @@ export default function AdminDashboardPage() {
                 </div>
               </div>
 
-              {((!isAsAdmin && (yearFilter !== 'all' || branchFilter !== 'all')) || (isAsAdmin && branchFilter !== 'all')) && (
+              {((!isAsAdmin && (effectiveYearFilter !== 'all' || effectiveBranchFilter !== 'all')) || (isAsAdmin && effectiveBranchFilter !== 'all')) && (
                 <div className="flex items-center gap-2 text-sm px-4 py-2 rounded-xl"
                   style={{ background: 'var(--color-surface-2)', color: 'var(--color-text-muted)' }}>
                   Showing
-                  {branchFilter !== 'all' && <strong style={{ color: 'var(--color-text)' }}>{branchFilter}</strong>}
-                  {!isAsAdmin && yearFilter !== 'all' && <strong style={{ color: 'var(--color-text)' }}>{yearFilter} Year</strong>}
+                  {effectiveBranchFilter !== 'all' && <strong style={{ color: 'var(--color-text)' }}>{effectiveBranchFilter}</strong>}
+                  {!isAsAdmin && effectiveYearFilter !== 'all' && <strong style={{ color: 'var(--color-text)' }}>{effectiveYearFilter} Year</strong>}
                   students
                   <span className="ml-auto">{filteredStudents.length} students</span>
                 </div>
@@ -792,64 +959,190 @@ export default function AdminDashboardPage() {
               ) : filteredStudents.length === 0 ? (
                 <div className="card p-8 text-center"><p style={{ color: 'var(--color-text-muted)' }}>No students found.</p></div>
               ) : (
-                Object.entries(groupedStudents).sort().map(([group, grpStudents]) => (
-                  <div key={group} className="card overflow-hidden">
-                    <div className="px-5 py-3 border-b flex items-center justify-between"
-                      style={{ borderColor: 'var(--color-border)', background: 'var(--color-surface-2)' }}>
-                      <p className="text-sm font-semibold" style={{ color: 'var(--color-text)' }}>{group}</p>
-                      <span className="text-xs px-2 py-1 rounded-full" style={{ background: 'var(--color-primary)', color: 'white' }}>
-                        {grpStudents.length} students
-                      </span>
-                    </div>
-                    <div className="overflow-x-auto">
-                      <table className="w-full text-sm">
-                        <thead>
-                          <tr style={{ borderBottom: '1px solid var(--color-border)', background: 'var(--color-surface-2)' }}>
-                            {['Roll No.', 'Name', 'Section', 'Semester'].map(h => (
-                              <th key={h} className="text-left px-4 py-2 text-xs font-semibold" style={{ color: 'var(--color-text-muted)' }}>{h}</th>
-                            ))}
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {grpStudents
-                            .sort((a, b) => new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' })
-                              .compare((a as any).rollNumber ?? '', (b as any).rollNumber ?? ''))
-                            .map(student => (
-                              <tr key={student.uid} className="border-b hover:opacity-90" style={{ borderColor: 'var(--color-border)' }}>
-                                <td className="px-4 py-3 font-mono font-bold text-xs" style={{ color: 'var(--color-primary)' }}>
-                                  {(student as any).rollNumber}
-                                </td>
-                                <td className="px-4 py-3">
-                                  <div className="flex items-center gap-2">
-                                    <div className="w-7 h-7 rounded-full flex items-center justify-center text-white text-xs font-bold"
-                                      style={{ background: '#7c3aed' }}>
-                                      {student.displayName?.charAt(0)}
+                sortedGroupedStudents.map(([group, grpStudents]) => {
+                  const [trade, sem, sec] = group.split('::')
+                  const displayLabel = `${trade} — Sem ${sem} — Sec ${sec}`
+                  return (
+                    <div key={group} className="card overflow-hidden">
+                      <div className="px-5 py-3 border-b flex items-center justify-between"
+                        style={{ borderColor: 'var(--color-border)', background: 'var(--color-surface-2)' }}>
+                        <p className="text-sm font-semibold" style={{ color: 'var(--color-text)' }}>{displayLabel}</p>
+                        <span className="text-xs px-2 py-1 rounded-full" style={{ background: 'var(--color-primary)', color: 'white' }}>
+                          {grpStudents.length} students
+                        </span>
+                      </div>
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-sm">
+                          <thead>
+                            <tr style={{ borderBottom: '1px solid var(--color-border)', background: 'var(--color-surface-2)' }}>
+                              {['Roll No.', 'Name', 'Section', 'Semester'].map(h => (
+                                <th key={h} className="text-left px-4 py-2 text-xs font-semibold" style={{ color: 'var(--color-text-muted)' }}>{h}</th>
+                              ))}
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {grpStudents.map(student => {
+                              const avatarStyle = getBranchStyle(TRADE_TO_CODE[student.trade ?? ''] ?? '')
+                              return (
+                                <tr key={student.uid} className="border-b hover:opacity-90" style={{ borderColor: 'var(--color-border)' }}>
+                                  <td className="px-4 py-3 font-mono font-bold text-xs" style={{ color: 'var(--color-primary)' }}>
+                                    {student.rollNumber}
+                                  </td>
+                                  <td className="px-4 py-3">
+                                    <div className="flex items-center gap-2">
+                                      <div className="w-7 h-7 rounded-full flex items-center justify-center text-white text-xs font-bold"
+                                        style={{ background: avatarStyle.text }}>
+                                        {student.displayName?.charAt(0)}
+                                      </div>
+                                      <span className="font-medium" style={{ color: 'var(--color-text)' }}>{student.displayName}</span>
                                     </div>
-                                    <span className="font-medium" style={{ color: 'var(--color-text)' }}>{student.displayName}</span>
-                                  </div>
-                                </td>
-                                <td className="px-4 py-3">
-                                  <span className="text-xs px-2 py-1 rounded-full font-semibold"
-                                    style={{ background: 'var(--color-surface-2)', color: 'var(--color-text)' }}>
-                                    {(student as any).section}
-                                  </span>
-                                </td>
-                                <td className="px-4 py-3 text-xs font-semibold" style={{ color: 'var(--color-text-muted)' }}>
-                                  Sem {(student as any).semester}
-                                </td>
-                              </tr>
-                            ))}
-                        </tbody>
-                      </table>
+                                  </td>
+                                  <td className="px-4 py-3">
+                                    <span className="text-xs px-2 py-1 rounded-full font-semibold"
+                                      style={{ background: 'var(--color-surface-2)', color: 'var(--color-text)' }}>
+                                      {student.section}
+                                    </span>
+                                  </td>
+                                  <td className="px-4 py-3 text-xs font-semibold" style={{ color: 'var(--color-text-muted)' }}>
+                                    Sem {student.semester}
+                                  </td>
+                                </tr>
+                              )
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
                     </div>
-                  </div>
-                ))
+                  )
+                })
               )}
             </div>
           )}
 
-        </main>
+        
+  {showLowAttendance && (
+  <div
+    className="fixed inset-0 z-50 flex items-center justify-center p-4"
+    style={{ background: 'rgba(0,0,0,0.5)' }}
+    onClick={() => setShowLowAttendance(false)}
+  >
+    <div
+      className="w-full max-w-2xl rounded-2xl overflow-hidden flex flex-col max-h-[80vh]"
+      style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)' }}
+      onClick={e => e.stopPropagation()}
+    >
+      {/* Header */}
+      <div className="flex items-center justify-between px-5 py-4 border-b"
+        style={{ borderColor: 'var(--color-border)', background: 'var(--color-surface-2)' }}>
+        <div>
+          <p className="font-bold text-sm" style={{ color: 'var(--color-text)' }}>
+            Low Attendance Students
+          </p>
+          <p className="text-xs" style={{ color: 'var(--color-text-muted)' }}>
+            Students with attendance below 75%
+          </p>
+        </div>
+        <button onClick={() => setShowLowAttendance(false)}
+          className="p-1.5 rounded-lg hover:opacity-70"
+          style={{ color: 'var(--color-text-muted)' }}>
+          <HiOutlineX size={18} />
+        </button>
+      </div>
+
+      {/* Body */}
+      <div className="overflow-y-auto flex-1">
+        {lowAttendanceStudents.length === 0 ? (
+          <div className="p-8 text-center" style={{ color: 'var(--color-text-muted)' }}>
+            <HiOutlineCheckCircle size={32} className="mx-auto mb-2 opacity-50" style={{ color: '#16a34a' }} />
+            <p className="text-sm font-semibold" style={{ color: '#16a34a' }}>All clear!</p>
+            <p className="text-xs mt-1">No students below 75% attendance.</p>
+          </div>
+        ) : (
+          <table className="w-full text-sm">
+            <thead>
+              <tr style={{ borderBottom: '1px solid var(--color-border)', background: 'var(--color-surface-2)' }}>
+                {['Roll No.', 'Name', 'Section', 'Semester', 'Attendance'].map(h => (
+                  <th key={h} className="text-left px-4 py-3 text-xs font-semibold"
+                    style={{ color: 'var(--color-text-muted)' }}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {lowAttendanceStudents.map(student => {
+                const matched = classStudents.find(s => s.uid === student.studentId || s.rollNumber === student.rollNumber)
+                return (
+                  <tr key={student.studentId} className="border-b"
+                    style={{ borderColor: 'var(--color-border)' }}>
+                    <td className="px-4 py-3 font-mono font-bold text-xs"
+                      style={{ color: 'var(--color-primary)' }}>
+                      {student.rollNumber}
+                    </td>
+                    <td className="px-4 py-3">
+                      <div className="flex items-center gap-2">
+                        <div className="w-7 h-7 rounded-full flex items-center justify-center text-white text-xs font-bold flex-shrink-0"
+                          style={{ background: '#ef4444' }}>
+                          {student.name.charAt(0)}
+                        </div>
+                        <span className="font-medium" style={{ color: 'var(--color-text)' }}>
+                          {student.name}
+                        </span>
+                      </div>
+                    </td>
+                    <td className="px-4 py-3">
+                      <span className="text-xs px-2 py-1 rounded-full font-semibold"
+                        style={{ background: 'var(--color-surface-2)', color: 'var(--color-text)' }}>
+                        {matched?.section ?? '—'}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3 text-xs font-semibold"
+                      style={{ color: 'var(--color-text-muted)' }}>
+                      Sem {matched?.semester ?? '—'}
+                    </td>
+                    <td className="px-4 py-3">
+                      <span className="text-xs px-2 py-1 rounded-full font-semibold"
+                        style={{ background: '#ef444420', color: '#ef4444' }}>
+                        {student.percentage.toFixed(1)}%
+                      </span>
+                    </td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        )}
       </div>
     </div>
-  )
+  </div>
+)}
+
+{showDirectForm && appUser && (
+  <div
+    className="fixed inset-0 z-50 flex items-center justify-center p-4"
+    style={{ background: 'rgba(0,0,0,0.5)' }}
+    onClick={() => setShowDirectForm(false)}
+  >
+    <div className="w-full max-w-3xl" onClick={e => e.stopPropagation()}>
+      <AdminDirectRequestForm
+        adminId={appUser.uid}
+        adminName={appUser.displayName}
+        adminDeptCode={adminDeptCode}
+        onCancel={() => setShowDirectForm(false)}
+        onSuccess={() => setShowDirectForm(false)}
+      />
+    </div>
+  </div>
+)}
+
+{/* ── ADJUSTMENTS TAB ───────────────────────────────────────────── */}
+{activeTab === 'adjustments' && (
+  <AdminAdjustmentsPanel
+    adminId={appUser.uid}
+    adminName={appUser.displayName}
+    adminDeptCode={adminDeptCode}
+  />
+)}
+</main>
+</div>
+</div>
+)
 }

@@ -2,14 +2,14 @@
 
 import { useEffect, useState } from 'react'
 import { useAuth } from '@/lib/auth-context'
-import { useRouter } from 'next/navigation'
-import { getStudentsBySection, addStudent, removeStudent, getAllTrades } from '@/lib/db'
+import { useRouter, useSearchParams } from 'next/navigation'
+import { getStudentsBySection, getStudentsByTrade, addStudent, removeStudent, getAllTrades, getAvailableSemesters } from '@/lib/db'
 import type { TeacherUser, StudentUser, Trade, AppUser } from '@/types'
 import Loading from '@/components/ui/Loading'
 import Navbar from '@/components/shared/Navbar'
 import Sidebar from '@/components/shared/Sidebar'
 import Modal from '@/components/ui/Modal'
-import { SECTIONS } from '@/lib/utils'
+import { SECTIONS, getSemesterLabel } from '@/lib/utils'
 import toast from 'react-hot-toast'
 import {
   HiOutlineUserAdd, HiOutlineTrash, HiOutlineSearch,
@@ -33,11 +33,10 @@ const BRANCH_TRADE: Record<Branch, string> = {
 }
 
 function getTeacherBranches(user: AppUser | null): Branch[] {
-  if (!user) return []
-  const codes: string[] =
-    (user as any).departmentCodes ??
-    [(user as any).departmentCode ?? '']
-  const teacherDeptCode = (user as any).departmentCode as string | undefined
+  if (!user || (user.role !== 'teacher' && user.role !== 'admin')) return []
+  const teacher = user as TeacherUser | import('@/types').AdminUser
+  const codes: string[] = teacher.departmentCodes ?? [teacher.departmentCode ?? '']
+  const teacherDeptCode = teacher.departmentCode
 
   if (teacherDeptCode === 'AS') {
     return [...FIRST_YEAR_BRANCHES]
@@ -57,6 +56,7 @@ function getAllowedTrades(user: AppUser | null): string[] {
 export default function StudentsPage() {
   const { appUser, loading } = useAuth()
   const router = useRouter()
+  const searchParams = useSearchParams()
   const teacher = appUser as TeacherUser | null
   const isAdmin = appUser?.role === 'admin'
 
@@ -83,12 +83,18 @@ export default function StudentsPage() {
   const [deleteTarget, setDeleteTarget] = useState<StudentUser | null>(null)
   const [sectionFilter, setSectionFilter] = useState({ trade: '', semester: '', section: '' })
   const [dataLoading, setDataLoading] = useState(false)
+  const [availableSemesters, setAvailableSemesters] = useState<number[]>([])
 
-  const isAsTeacher = (appUser as any)?.departmentCode === 'AS'
+  const isAsTeacher = !!appUser && appUser.role !== 'student' && appUser.departmentCode === 'AS'
   const [newStudent, setNewStudent] = useState({
     displayName: '', rollNumber: '', email: '',
     trade: '', semester: '', section: '', parentEmail: '',
   })
+
+  useEffect(() => {
+    if (!sectionFilter.trade) { setAvailableSemesters([]); return }
+    getAvailableSemesters(sectionFilter.trade).then(setAvailableSemesters)
+  }, [sectionFilter.trade])
 
   useEffect(() => {
     if (!loading && !appUser) {
@@ -106,6 +112,18 @@ export default function StudentsPage() {
   }, [loading, appUser, router])
 
   useEffect(() => {
+    const trade = searchParams?.get('trade') ?? ''
+    const semester = searchParams?.get('semester') ?? ''
+    const section = searchParams?.get('section') ?? ''
+    if (!trade) return
+    setSectionFilter(prev => ({
+      trade: trade || prev.trade,
+      semester: semester || prev.semester,
+      section: section || prev.section,
+    }))
+  }, [searchParams])
+
+  useEffect(() => {
     const allowed = getAllowedTrades(appUser)
     if (allowed.length === 1 && !sectionFilter.trade) {
       setSectionFilter(prev => ({ ...prev, trade: allowed[0] }))
@@ -113,9 +131,13 @@ export default function StudentsPage() {
   }, [appUser, sectionFilter.trade])
 
   useEffect(() => {
-    if (!sectionFilter.trade || !sectionFilter.semester || !sectionFilter.section) return
+    if (!sectionFilter.trade) return
     setDataLoading(true)
-    getStudentsBySection(sectionFilter.trade, parseInt(sectionFilter.semester), sectionFilter.section)
+    const fetchStudents = sectionFilter.semester && sectionFilter.section
+      ? getStudentsBySection(sectionFilter.trade, parseInt(sectionFilter.semester), sectionFilter.section)
+      : getStudentsByTrade(sectionFilter.trade)
+
+    fetchStudents
       .then(data => {
         data.sort((a, b) => new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' }).compare(a.rollNumber, b.rollNumber))
         setStudents(data)
@@ -211,8 +233,8 @@ export default function StudentsPage() {
                   onChange={e => setSectionFilter(p => ({ ...p, semester: e.target.value }))}
                   disabled={!sectionFilter.trade}>
                   <option value="">Select</option>
-                  {(isAsTeacher ? [1, 2] : [1, 2, 3, 4, 5, 6]).map(s => (
-                    <option key={s} value={s}>Semester {s}</option>
+                  {availableSemesters.map(s => (
+                    <option key={s} value={s}>{getSemesterLabel(s, sectionFilter.trade)}</option>
                   ))}
                 </select>
               </div>
@@ -229,7 +251,7 @@ export default function StudentsPage() {
           </div>
 
           {/* Students List */}
-          {sectionFilter.trade && sectionFilter.semester && sectionFilter.section && (
+          {sectionFilter.trade && (
             <div className="card overflow-hidden">
               <div className="p-4 border-b flex items-center justify-between gap-3" style={{ borderColor: 'var(--color-border)' }}>
                 <div className="relative flex-1 max-w-xs">
@@ -306,7 +328,9 @@ export default function StudentsPage() {
               <label className="label">Semester *</label>
               <select className="input" value={newStudent.semester} onChange={e => setNewStudent(p => ({ ...p, semester: e.target.value }))}>
                 <option value="">Sem</option>
-                {[1,2,3,4,5,6].map(s => <option key={s} value={s}>{s}</option>)}
+                {[1,2,3,4,5,6,...(newStudent.trade === 'Automobile Engineering' ? [7] : [])].map(s => (
+                  <option key={s} value={s}>{getSemesterLabel(s, newStudent.trade)}</option>
+                ))}
               </select>
             </div>
             <div>

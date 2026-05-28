@@ -2,10 +2,9 @@
 //  SEED SCRIPT — Students
 //  Run once: node seed-students.mjs
 // ─────────────────────────────────────────────────────────────────
-import { initializeApp } from 'firebase/app'
-import { getFirestore, collection, query, where, getDocs, deleteDoc, setDoc, doc, Timestamp } from 'firebase/firestore'
-import { getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut as firebaseSignOut } from 'firebase/auth'
+import admin from 'firebase-admin'
 import { readFileSync } from 'fs'
+import { getFirestore, collection, query, where, getDocs, deleteDoc, setDoc, doc, Timestamp } from 'firebase-admin/firestore'
 
 try {
   const env = readFileSync('.env.local', 'utf8')
@@ -18,19 +17,28 @@ try {
   process.exit(1)
 }
 
-// ─── FIREBASE CONFIG & INITIALIZATION ─────────────────────────────
-const firebaseConfig = {
-  apiKey:            process.env.NEXT_PUBLIC_FIREBASE_API_KEY,
-  authDomain:        process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN,
-  projectId:         process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID,
-  storageBucket:     process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET,
-  messagingSenderId: process.env.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID,
-  appId:             process.env.NEXT_PUBLIC_FIREBASE_APP_ID,
+// ─── FIREBASE ADMIN CONFIG & INITIALIZATION ─────────────────────────
+const projectId = process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID
+const serviceAccount = process.env.FIREBASE_SERVICE_ACCOUNT
+  ? JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT)
+  : undefined
+
+if (!projectId) {
+  console.error('Missing NEXT_PUBLIC_FIREBASE_PROJECT_ID in .env.local')
+  process.exit(1)
 }
 
-const app = initializeApp(firebaseConfig)
-const db  = getFirestore(app)
-const auth = getAuth(app)
+const adminApp = admin.apps.length
+  ? admin.app()
+  : admin.initializeApp({
+      credential: serviceAccount
+        ? admin.credential.cert(serviceAccount)
+        : admin.credential.applicationDefault(),
+      projectId,
+    })
+
+const db = getFirestore(adminApp)
+const auth = admin.auth(adminApp)
 
 // ─── HELPER: sleep to avoid Firebase auth rate limits ─────────────
 const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms))
@@ -179,18 +187,20 @@ async function seed() {
     let uid
 
     try {
-      const userCredential = await createUserWithEmailAndPassword(auth, email, password)
-      uid = userCredential.user.uid
-      await firebaseSignOut(auth)
+      const userRecord = await auth.createUser({
+        email,
+        password,
+        displayName: student.displayName,
+      })
+      uid = userRecord.uid
     } catch (err) {
       const error = err
-      if (error?.code === 'auth/email-already-in-use') {
+      if (error?.code === 'auth/email-already-exists') {
         try {
-          const userCredential = await signInWithEmailAndPassword(auth, email, password)
-          uid = userCredential.user.uid
-          await firebaseSignOut(auth)
-        } catch (signInErr) {
-          console.error(`Failed sign-in for ${student.rollNumber} (${email}):`, signInErr.message)
+          const userRecord = await auth.getUserByEmail(email)
+          uid = userRecord.uid
+        } catch (lookupErr) {
+          console.error(`Failed lookup for existing ${student.rollNumber} (${email}):`, lookupErr.message)
           failed.push(student.rollNumber)
           continue
         }

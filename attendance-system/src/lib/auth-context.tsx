@@ -19,23 +19,23 @@ import type { AppUser, UserRole } from '@/types'
 import { useRouter } from 'next/navigation'
 
 interface AuthContextType {
-  user: User | null
-  appUser: AppUser | null
-  loading: boolean
-  signIn: (email: string, password: string) => Promise<AppUser>
-  signUp: (email: string, password: string, userData: Partial<AppUser> & { role?: UserRole }) => Promise<void>
-  signOut: () => Promise<void>
-  resetPassword: (email: string) => Promise<void>
-  changePassword: (currentPassword: string, newPassword: string) => Promise<void>
+  user:              User | null
+  appUser:           AppUser | null
+  loading:           boolean
+  signIn:            (email: string, password: string) => Promise<AppUser>
+  signUp:            (email: string, password: string, userData: Partial<AppUser> & { role?: UserRole }) => Promise<void>
+  signOut:           () => Promise<void>
+  resetPassword:     (email: string) => Promise<void>
+  changePassword:    (currentPassword: string, newPassword: string) => Promise<void>
   updateProfileInfo: (data: { displayName?: string; photoURL?: string }) => Promise<void>
-  updateTheme: (theme: 'light' | 'dark') => Promise<void>
-  updateColorTheme: (colorTheme: 'blue' | 'ocean') => Promise<void>
+  updateTheme:       (theme: 'light' | 'dark') => Promise<void>
+  updateColorTheme:  (colorTheme: 'blue' | 'ocean') => Promise<void>
 }
 
 const AuthContext = createContext<AuthContextType | null>(null)
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [user, setUser] = useState<User | null>(null)
+  const [user,    setUser]    = useState<User | null>(null)
   const [appUser, setAppUser] = useState<AppUser | null>(null)
   const [loading, setLoading] = useState(true)
   const router = useRouter()
@@ -48,8 +48,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setAppUser(userData)
         if (userData?.theme === 'dark') {
           document.documentElement.classList.add('dark')
+          localStorage.setItem('theme', 'dark')
         } else {
           document.documentElement.classList.remove('dark')
+          localStorage.setItem('theme', 'light')
         }
       } else {
         setAppUser(null)
@@ -68,9 +70,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }
 
   const signUp = async (
-    email: string,
+    email:    string,
     password: string,
-    userData: Partial<AppUser> & { role?: UserRole }
+    userData: Partial<AppUser> & { role?: UserRole },
   ): Promise<void> => {
     const { user: firebaseUser } = await createUserWithEmailAndPassword(auth, email, password)
     if (userData.displayName) {
@@ -78,11 +80,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
     await createUser(firebaseUser.uid, {
       email,
-      displayName: userData.displayName || '',
-      role: userData.role || 'teacher',
-      theme: 'light',
-      colorTheme: 'blue',
-      isFirstLogin: true,
+      displayName:      userData.displayName || '',
+      role:             userData.role || 'teacher',
+      theme:            'light',
+      colorTheme:       'blue',
+      isFirstLogin:     true,
       showProfileSetup: false,
       ...userData,
     } as Omit<AppUser, 'uid'>)
@@ -113,7 +115,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     await updateProfile(user, data)
     const updates: Partial<AppUser> = {}
     if (data.displayName) updates.displayName = data.displayName
-    if (data.photoURL) (updates as any).photoURL = data.photoURL
+    if (data.photoURL) updates.photoURL = data.photoURL
     await updateUser(user.uid, updates)
     setAppUser(prev => prev ? ({ ...prev, ...updates } as AppUser) : null)
   }
@@ -124,8 +126,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setAppUser(prev => prev ? { ...prev, theme } : null)
     if (theme === 'dark') {
       document.documentElement.classList.add('dark')
+      localStorage.setItem('theme', 'dark')
     } else {
       document.documentElement.classList.remove('dark')
+      localStorage.setItem('theme', 'light')
     }
   }
 

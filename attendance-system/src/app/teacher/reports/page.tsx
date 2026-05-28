@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react'
 import { useAuth } from '@/lib/auth-context'
 import { useRouter } from 'next/navigation'
 import {
-  getStudentsBySection, getAllTrades,
+  getStudentsBySection, getAllTrades, getAvailableSemesters,
 } from '@/lib/db'
 import { getDocs, collection, query, where, orderBy } from 'firebase/firestore'
 import { db } from '@/lib/firebase'
@@ -14,7 +14,7 @@ import Loading from '@/components/ui/Loading'
 import Navbar from '@/components/shared/Navbar'
 import Sidebar from '@/components/shared/Sidebar'
 import { exportAttendanceCSV, exportAttendanceExcel, exportToPDF } from '@/lib/export'
-import { SECTIONS } from '@/lib/utils'
+import { SECTIONS, getSemesterLabel } from '@/lib/utils'
 import toast from 'react-hot-toast'
 import {
   HiOutlineDocumentReport, HiOutlineDownload, HiOutlineClipboardCheck,
@@ -37,11 +37,10 @@ const BRANCH_TRADE: Record<Branch, string> = {
 }
 
 function getTeacherBranches(user: AppUser | null): Branch[] {
-  if (!user) return []
-  const codes: string[] =
-    (user as any).departmentCodes ??
-    [(user as any).departmentCode ?? '']
-  const teacherDeptCode = (user as any).departmentCode as string | undefined
+  if (!user || (user.role !== 'teacher' && user.role !== 'admin')) return []
+  const teacher = user as TeacherUser | import('@/types').AdminUser
+  const codes: string[] = teacher.departmentCodes ?? [teacher.departmentCode ?? '']
+  const teacherDeptCode = teacher.departmentCode
 
   if (teacherDeptCode === 'AS') {
     return [...FIRST_YEAR_BRANCHES]
@@ -85,6 +84,12 @@ export default function ReportsPage() {
   const [students, setStudents] = useState<StudentUser[]>([])
   const [records, setRecords] = useState<AttendanceRecord[]>([])
   const [fetching, setFetching] = useState(false)
+  const [availableSemesters, setAvailableSemesters] = useState<number[]>([])
+
+  useEffect(() => {
+    if (!filter.trade) { setAvailableSemesters([]); return }
+    getAvailableSemesters(filter.trade).then(setAvailableSemesters)
+  }, [filter.trade])
 
   useEffect(() => {
     if (!loading && !appUser) router.push('/teacher/login')
@@ -171,6 +176,7 @@ export default function ReportsPage() {
           {/* Filter Card */}
           <div className="card p-5">
             <h2 className="section-title mb-4">Generate Report</h2>
+      
             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
               <div>
                 <label className="label">Trade</label>
@@ -186,7 +192,9 @@ export default function ReportsPage() {
                   onChange={e => setFilter(p => ({ ...p, semester: e.target.value }))}
                   disabled={!filter.trade}>
                   <option value="">Select</option>
-                  {[1,2,3,4,5,6].map(s => <option key={s} value={s}>Sem {s}</option>)}
+                  {availableSemesters.map(s => (
+                    <option key={s} value={s}>{getSemesterLabel(s, filter.trade)}</option>
+                  ))}
                 </select>
               </div>
               <div>

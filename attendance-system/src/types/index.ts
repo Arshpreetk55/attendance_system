@@ -1,4 +1,5 @@
 ﻿// ─── User & Auth Types ──────────────────────────────────────────────────────
+import type { Timestamp } from 'firebase/firestore'
 
 export type UserRole = 'admin' | 'teacher' | 'student'
 
@@ -7,36 +8,39 @@ export interface BaseUser {
   email: string
   displayName: string
   role: UserRole
-  createdAt: Date
-  updatedAt: Date
+  createdAt: Date | Timestamp
+  updatedAt: Date | Timestamp
   theme?: 'light' | 'dark'
   colorTheme?: 'blue' | 'ocean'
-  // ── Profile setup flags ──────────────────────────────────────────
   isFirstLogin?: boolean
   showProfileSetup?: boolean
   photoURL?: string
-}
-
-export interface AdminUser extends BaseUser {
-  role: 'admin'
-  // Admins can also be teachers, so include teacher fields as optional
-  teacherId?: string
-  department?: string
-  subjects?: string[]
-  assignedSections?: SectionRef[]
-  isTutor?: boolean
-  tutorSection?: SectionRef
-  isFirstLogin?: boolean
-  showProfileSetup?: boolean
+  departmentCodes?: string[]
 }
 
 export interface TeacherUser extends BaseUser {
   role: 'teacher'
   teacherId: string
   department: string
+  departmentCode: string
+  trade?: string
   subjects: string[]
   assignedSections: SectionRef[]
   timetable?: Timetable
+  isTutor?: boolean
+  tutorSection?: SectionRef
+  isFirstLogin?: boolean
+  showProfileSetup?: boolean
+}
+
+export interface AdminUser extends BaseUser {
+  role: 'admin'
+  teacherId?: string
+  department?: string
+  departmentCode?: string
+  trade?: string
+  subjects?: string[]
+  assignedSections?: SectionRef[]
   isTutor?: boolean
   tutorSection?: SectionRef
   isFirstLogin?: boolean
@@ -93,16 +97,23 @@ export interface DaySchedule {
   periods: Period[]
 }
 
+// Added subjectCode and periodNumber fields used throughout the adjustment system
 export interface Period {
   id: string
-  startTime: string  // "HH:MM"
-  endTime: string    // "HH:MM"
+  startTime: string
+  endTime: string
   subjectId: string
   subjectName: string
+  subjectCode?: string    // used by RequestForm and adjustment requests
+  periodNumber?: number   // used by AdminAdjustmentsPanel and notifications
   trade: string
   semester: number
   section: string
   room?: string
+  classType?: 'lecture' | 'practical'
+  practicalPeriods?: number
+  adjustmentRequestId?: string | null
+  periodLabel?: string
 }
 
 // ─── Attendance Types ────────────────────────────────────────────────────────
@@ -111,7 +122,7 @@ export type AttendanceStatus = 'present' | 'absent' | 'late'
 
 export interface AttendanceRecord {
   id: string
-  date: string           // "YYYY-MM-DD"
+  date: string
   subjectId: string
   subjectName: string
   teacherId: string
@@ -119,6 +130,11 @@ export interface AttendanceRecord {
   semester: number
   section: string
   periodId: string
+  periodLabel?: string
+  startTime?: string
+  endTime?: string
+  adjustmentRequestId?: string | null
+  originalTeacherId?: string
   students: StudentAttendance[]
   markedAt: Date
   markedBy: string
@@ -209,4 +225,50 @@ export interface ExportOptions {
   dateRange?: { from: Date; to: Date }
   subjects?: string[]
   students?: string[]
+}
+
+// Complete AdjustmentRequest type with all fields used across the system
+export interface AdjustmentRequest {
+  id: string
+
+  fromTeacherId: string
+  fromTeacherName: string
+
+  toTeacherId: string | null
+  toTeacherName: string | null
+
+  departmentCode: string
+  department?: string
+
+  date: string
+
+  periodId: string
+  periodNumber: number
+  startTime: string
+  endTime: string
+
+  subject: string
+  subjectCode?: string
+  semester: number
+  section: string
+  room?: string | null
+
+  status:
+    | 'pending'
+    | 'accepted'
+    | 'rejected'
+    | 'cancelled'
+    | 'admin-pending'
+    | 'admin-assigned'
+
+  workflowType: 'teacher-to-teacher' | 'teacher-to-admin' | 'admin-direct'
+
+  assignedByAdminId?: string | null
+  adminAssignedAt?: Timestamp | Date | null
+
+  attendanceMarkedBy?: string | null
+  attendanceMarkedAt?: Timestamp | Date | null
+
+  createdAt: Timestamp | Date
+  updatedAt?: Timestamp | Date
 }

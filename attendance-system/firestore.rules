@@ -1,3 +1,4 @@
+//outside 
 rules_version = '2';
 
 service cloud.firestore {
@@ -36,7 +37,19 @@ service cloud.firestore {
     // ── Attendance ────────────────────────────────────────────────────────────
     match /attendance/{recordId} {
       allow read: if isSignedIn();
-      allow create, update: if isTeacher();
+      allow create: if isTeacher()
+        && request.resource.data.markedBy == request.auth.uid
+        && (
+          request.resource.data.adjustmentRequestId == null ||
+          (
+            request.resource.data.adjustmentRequestId != null
+            && get(/databases/$(database)/documents/adjustmentRequests/$(request.resource.data.adjustmentRequestId)).data.toTeacherId == request.auth.uid
+            && get(/databases/$(database)/documents/adjustmentRequests/$(request.resource.data.adjustmentRequestId)).data.status == 'accepted'
+          )
+        );
+      allow update: if isSignedIn() && (
+        isAdmin() || request.auth.uid == resource.data.markedBy
+      );
       allow delete: if isAdmin();
     }
 
@@ -57,7 +70,34 @@ service cloud.firestore {
       allow read: if isSignedIn();
       allow write: if isTeacher() && (isOwner(teacherId) || isAdmin());
     }
+    // ── Adjustment Requests ──────────────────────────────────────────────────
+    match /adjustmentRequests/{reqId} {
+      allow read: if isSignedIn() && (
+        isAdmin() ||
+        request.auth.uid == resource.data.fromTeacherId ||
+        request.auth.uid == resource.data.toTeacherId
+      );
 
+      allow create: if isTeacher()
+        && request.resource.data.fromTeacherId == request.auth.uid
+        && request.resource.data.departmentCode == getUser().departmentCode
+        && (
+          request.resource.data.toTeacherId == null ||
+          request.resource.data.toTeacherId != request.auth.uid
+        )
+        && request.resource.data.status in ['pending', 'admin-pending'];
+
+      allow update: if isAdmin() || (
+        isTeacher()
+        && request.auth.uid == resource.data.toTeacherId
+        && request.resource.data.diff(resource.data).affectedKeys()
+            .hasOnly(['status', 'updatedAt'])
+        && request.resource.data.status in ['accepted', 'rejected']
+        && resource.data.status == 'pending'
+      );
+
+      allow delete: if false;
+    }
     // ── Notifications ─────────────────────────────────────────────────────────
     match /notifications/{notifId} {
       allow read: if isSignedIn() && (

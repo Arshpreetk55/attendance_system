@@ -4,19 +4,22 @@ import { useEffect, useState } from 'react'
 import { useAuth } from '@/lib/auth-context'
 import { useRouter } from 'next/navigation'
 import {
-  getTodayPeriodsForTeacher, getStudentsBySection,
-  markAttendance, getAttendanceByDateSubject,
+  getPeriodsForTeacherOnDate, getStudentsBySection,
+  markAttendanceSafe,
 } from '@/lib/db'
 import type { TeacherUser, Period, StudentUser, StudentAttendance, AttendanceStatus } from '@/types'
 import Loading from '@/components/ui/Loading'
 import Navbar from '@/components/shared/Navbar'
 import Sidebar from '@/components/shared/Sidebar'
-import { todayString, formatDate } from '@/lib/utils'
+import { todayString, formatDate, getSemesterLabel } from '@/lib/utils'
 import toast from 'react-hot-toast'
 import {
   HiOutlineClipboardCheck, HiOutlineUsers, HiOutlineChartBar,
   HiOutlineCalendar, HiOutlineDocumentReport, HiOutlineCheck, HiOutlineX,
 } from 'react-icons/hi'
+import { onSnapshot, collection, query, where } from 'firebase/firestore'
+import { db } from '@/lib/firebase'
+import { COLLECTIONS } from '@/lib/db'
 
 const teacherSidebarLinks = [
   { href: '/teacher/dashboard',       label: 'Dashboard',       icon: <HiOutlineChartBar size={18} /> },
@@ -73,33 +76,59 @@ export default function MarkAttendancePage() {
   }, [loading, appUser, router])
 
   useEffect(() => {
-    if (!teacher) return
-    getTodayPeriodsForTeacher(teacher.uid).then(setPeriods)
-  }, [teacher])
+    if (loading || !teacher) return
 
+    getPeriodsForTeacherOnDate(teacher.uid, date)
+      .then(periods => {
+        setPeriods(periods)
+        setSelectedPeriod(periods[0] ?? null)
+      })
+      .catch(() => {
+        setPeriods([])
+        setSelectedPeriod(null)
+      })
+  }, [loading, teacher, date])
+
+  // Real-time listener for selected period
   useEffect(() => {
     if (!selectedPeriod) return
-    const load = async () => {
-      const stds = await getStudentsBySection(selectedPeriod.trade, selectedPeriod.semester, selectedPeriod.section)
-      setStudents(stds)
 
-      const existing = await getAttendanceByDateSubject(
-        date, selectedPeriod.subjectId, selectedPeriod.trade, selectedPeriod.semester, selectedPeriod.section
-      )
-      if (existing) {
-        const map: Record<string, AttendanceStatus> = {}
-        existing.students.forEach(s => { map[s.studentId] = s.status })
-        setAttendance(map)
-        setSaved(true)
-      } else {
-        const map: Record<string, AttendanceStatus> = {}
-        stds.forEach(s => { map[s.uid] = 'present' })
-        setAttendance(map)
-        setSaved(false)
-      }
+  // Still fetch students once (they don't change mid-class)
+  getStudentsBySection(selectedPeriod.trade, selectedPeriod.semester, selectedPeriod.section)
+    .then(stds => {
+      setStudents(stds)
+      // Default all to present if no saved record yet
+      const map: Record<string, AttendanceStatus> = {}
+      stds.forEach(s => { map[s.uid] = 'present' })
+      setAttendance(map)
+    })
+
+  // Real-time listener for attendance record
+  const q = query(
+    collection(db, COLLECTIONS.ATTENDANCE),
+    where('date', '==', date),
+    where('subjectId', '==', selectedPeriod.subjectId),
+    where('trade', '==', selectedPeriod.trade),
+    where('semester', '==', selectedPeriod.semester),
+    where('section', '==', selectedPeriod.section),
+  )
+
+  const unsubscribe = onSnapshot(q, (snap) => {
+    if (!snap.empty) {
+      const record = snap.docs[0].data()
+      const map: Record<string, AttendanceStatus> = {}
+      record.students.forEach((s: any) => { map[s.studentId] = s.status })
+      setAttendance(map)
+      setSaved(true)
+    } else {
+      setSaved(false)
     }
-    load()
-  }, [selectedPeriod, date])
+  })
+
+  return () => unsubscribe() // cleanup when period changes or unmounts
+
+}, [selectedPeriod, date])
+
 
   const toggleStatus = (studentId: string) => {
     setAttendance(prev => ({
@@ -139,20 +168,46 @@ export default function MarkAttendancePage() {
         markedBy: teacher.displayName,
       }
 
-      const classType = (selectedPeriod as any).classType
-      const practicalPeriods = (selectedPeriod as any).practicalPeriods ?? 1
+      const classType = selectedPeriod.classType
+      const practicalPeriods = selectedPeriod.practicalPeriods ?? 1
+
+      const requestId = selectedPeriod.adjustmentRequestId ?? null
 
       if (selectedPeriod.startTime === '15:10') {
-        await markAttendance({ ...base, periodId: selectedPeriod.id + '-p7', periodLabel: '7th Period', startTime: '15:10', endTime: '16:00' } as any)
-        await markAttendance({ ...base, periodId: selectedPeriod.id + '-p8', periodLabel: '8th Period', startTime: '15:10', endTime: '16:00' } as any)
+        await markAttendanceSafe(
+          teacher.uid,
+          requestId,
+          selectedPeriod.id + '-p7',
+          date,
+          { ...base, periodId: selectedPeriod.id + '-p7', periodLabel: '7th Period', startTime: '15:10', endTime: '16:00' },
+        )
+        await markAttendanceSafe(
+          teacher.uid,
+          requestId,
+          selectedPeriod.id + '-p8',
+          date,
+          { ...base, periodId: selectedPeriod.id + '-p8', periodLabel: '8th Period', startTime: '15:10', endTime: '16:00' },
+        )
         toast.success('Attendance saved for both 7th & 8th periods!')
       } else if (classType === 'practical' && practicalPeriods > 1) {
         for (let i = 0; i < practicalPeriods; i++) {
-          await markAttendance({ ...base, periodId: selectedPeriod.id + '-lab' + (i + 1), periodLabel: `Practical Period ${i + 1} of ${practicalPeriods}` } as any)
+          await markAttendanceSafe(
+            teacher.uid,
+            requestId,
+            selectedPeriod.id + '-lab' + (i + 1),
+            date,
+            { ...base, periodId: selectedPeriod.id + '-lab' + (i + 1), periodLabel: `Practical Period ${i + 1} of ${practicalPeriods}` },
+          )
         }
         toast.success(`Attendance saved! Counted as ${practicalPeriods} periods.`)
       } else {
-        await markAttendance({ ...base, periodId: selectedPeriod.id, periodLabel: 'Period' } as any)
+        await markAttendanceSafe(
+          teacher.uid,
+          requestId,
+          selectedPeriod.id,
+          date,
+          { ...base, periodId: selectedPeriod.id, periodLabel: 'Period' },
+        )
         toast.success('Attendance saved!')
       }
 
@@ -207,12 +262,12 @@ export default function MarkAttendancePage() {
                         <span className="ml-1 text-xs opacity-80">(7th & 8th)</span>
                       )}
                       <span className="mx-1 opacity-60">·</span>
-                      {(period as any).classType === 'practical' ? '🔬' : '🎓'}
+                      {period.classType === 'practical' ? '🔬' : '🎓'}
                       {period.subjectName}
-                      <span className="ml-1 text-xs opacity-70">Sem{period.semester} {period.section}</span>
-                      {(period as any).practicalPeriods > 1 && (
+                      <span className="ml-1 text-xs opacity-70">{getSemesterLabel(period.semester, period.trade)} {period.section}</span>
+                      {period.practicalPeriods && period.practicalPeriods > 1 && (
                         <span className="ml-1 text-xs font-bold" style={{ color: selectedPeriod?.id === period.id ? '#e9d5ff' : '#7c3aed' }}>
-                          ×{(period as any).practicalPeriods}
+                          ×{period.practicalPeriods}
                         </span>
                       )}
                     </button>
@@ -232,9 +287,9 @@ export default function MarkAttendancePage() {
                   <p className="font-semibold" style={{ color: 'var(--color-text)' }}>
                     {selectedPeriod.subjectName}
                   </p>
-                  <p className="text-xs mt-0.5" style={{ color: 'var(--color-text-muted)' }}>
-                    {selectedPeriod.trade} · Sem {selectedPeriod.semester} · Section {selectedPeriod.section} · {formatDate(date)}
-                  </p>
+                    <p className="text-xs mt-0.5" style={{ color: 'var(--color-text-muted)' }}>
+                    {selectedPeriod.trade} · {getSemesterLabel(selectedPeriod.semester, selectedPeriod.trade)} · Section {selectedPeriod.section} · {formatDate(date)}
+                    </p>
                 </div>
                 <div className="flex items-center gap-4 text-sm">
                   <span className="flex items-center gap-1.5 text-green-600 font-semibold">

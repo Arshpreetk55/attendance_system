@@ -1,5 +1,3 @@
-      //Navbar.tsx
-
 'use client'
 
 import { useEffect, useState } from 'react'
@@ -8,24 +6,35 @@ import { useAuth } from '@/lib/auth-context'
 import { usePathname } from 'next/navigation'
 import { cn } from '@/lib/utils'
 import {
-  HiOutlineBell, HiOutlineMenu, HiOutlineX, HiOutlineSun,
-  HiOutlineMoon, HiOutlineLogout, HiOutlineUser,
+  HiOutlineMenu, HiOutlineX, HiOutlineSun,
+  HiOutlineMoon, HiOutlineLogout,
 } from 'react-icons/hi'
+import NotificationBar from '@/components/shared/NotificationBar'
+import StudentNotificationBar from '@/components/shared/StudentNotificationBar'
+import type { StudentUser } from '@/types'
 
 interface NavbarProps {
   portalName: string
   links: { href: string; label: string }[]
+  hideThemeToggle?: boolean
 }
 
-export default function Navbar({ portalName, links }: NavbarProps) {
+export default function Navbar({ portalName, links, hideThemeToggle }: NavbarProps) {
   const { appUser, signOut, updateTheme } = useAuth()
   const [menuOpen, setMenuOpen] = useState(false)
   const [userMenuOpen, setUserMenuOpen] = useState(false)
   const pathname = usePathname()
-const [isDark, setIsDark] = useState(false)
+  const [isDark, setIsDark] = useState(false)
+
+  // ✅ AFTER — watches the actual DOM class in real time
 useEffect(() => {
-  setIsDark(document.documentElement.classList.contains('dark'))
-}, [appUser?.theme])
+  const update = () => setIsDark(document.documentElement.classList.contains('dark'))
+  update()
+  const observer = new MutationObserver(update)
+  observer.observe(document.documentElement, { attributeFilter: ['class'] })
+  return () => observer.disconnect()
+}, [])
+
   const toggleTheme = () => {
     const newTheme = isDark ? 'light' : 'dark'
     updateTheme(newTheme)
@@ -38,8 +47,13 @@ useEffect(() => {
         borderColor: 'var(--color-border)',
       }}>
         <div className="max-w-7xl mx-auto px-4 sm:px-6 flex items-center justify-between h-16">
+
           {/* Logo */}
-          <Link href="/" className="flex items-center gap-2.5">
+          <Link href={
+            portalName === 'Admin' ? '/admin/dashboard'
+            : portalName === 'Student' ? '/student/dashboard'
+            : '/teacher/dashboard'
+          } className="flex items-center gap-2.5">
             <div className="w-8 h-8 rounded-lg flex items-center justify-center text-white font-display font-bold"
               style={{ background: 'var(--color-primary)' }}>
               A
@@ -61,9 +75,7 @@ useEffect(() => {
               <Link key={link.href} href={link.href}
                 className={cn(
                   'px-3 py-2 rounded-lg text-sm font-medium transition-colors',
-                  pathname === link.href
-                    ? 'text-white'
-                    : 'hover:opacity-80'
+                  pathname === link.href ? 'text-white' : 'hover:opacity-80'
                 )}
                 style={{
                   background: pathname === link.href ? 'var(--color-primary)' : 'transparent',
@@ -76,21 +88,19 @@ useEffect(() => {
 
           {/* Right Actions */}
           <div className="flex items-center gap-2">
-            {/* Theme Toggle */}
-            <button onClick={toggleTheme}
-              className="p-2 rounded-lg transition-colors hover:bg-opacity-80"
-              style={{ color: 'var(--color-text-muted)', background: 'var(--color-surface-2)' }}>
-              {isDark ? <HiOutlineSun size={18} /> : <HiOutlineMoon size={18} />}
-            </button>
 
-            {/* Notifications */}
-            {appUser && (
-              <button className="relative p-2 rounded-lg transition-colors"
+            {/* Theme Toggle */}
+            {!hideThemeToggle && (
+              <button onClick={toggleTheme}
+                className="p-2 rounded-lg transition-colors hover:bg-opacity-80"
                 style={{ color: 'var(--color-text-muted)', background: 'var(--color-surface-2)' }}>
-                <HiOutlineBell size={18} />
-                <span className="absolute top-1 right-1 w-2 h-2 rounded-full bg-red-500"></span>
+                {isDark ? <HiOutlineSun size={18} /> : <HiOutlineMoon size={18} />}
               </button>
             )}
+
+            {/* ✅ NotificationBar — replaces the old static bell button */}
+            {(appUser?.role === 'admin' || appUser?.role === 'teacher') && <NotificationBar appUser={appUser} />}
+            {appUser?.role === 'student' && <StudentNotificationBar student={appUser as StudentUser} />}
 
             {/* User Menu */}
             {appUser && (

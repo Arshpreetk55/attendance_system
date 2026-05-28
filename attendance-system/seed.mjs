@@ -1,4 +1,4 @@
-
+//seed.mjs
 // ─────────────────────────────────────────────────────────────────
 //  SEED SCRIPT — Trades & Subjects
 //  Run once: node seed.mjs
@@ -39,7 +39,7 @@ const TRADES = [
   { name: 'Electrical Engineering',                 code: 'EE',   totalSemesters: 6, sections: ['E', 'F'] },
   { name: 'Civil Engineering',                      code: 'CE',   totalSemesters: 6, sections: ['A', 'B'] },
   { name: 'Mechanical Engineering',                 code: 'ME',   totalSemesters: 6, sections: ['C', 'D'] },
-  { name: 'Automobile Engineering',                 code: 'AE',   totalSemesters: 6, sections: ['J', 'K'] },
+  { name: 'Automobile Engineering',                 code: 'AE',   totalSemesters: 7, sections: ['J', 'K'] },
 ]
 
 // ─── SUBJECTS ─────────────────────────────────────────────────────
@@ -333,6 +333,20 @@ const SUBJECTS = [
   { trade: 'Automobile Engineering', semester: 5, code: '5.4', name: 'Chassis, Body and Transmission-II' },
   { trade: 'Automobile Engineering', semester: 5, code: '5.5', name: 'Elements of Design' },
   { trade: 'Automobile Engineering', semester: 5, code: '5.6', name: 'Automobile Repair, Maintenance and Driving Practice-I' },
+
+  { trade: 'Automobile Engineering', semester: 6, code: '6.1', name: 'Tractor, Farming Equipment and Earth Moving Machinery' },
+  { trade: 'Automobile Engineering', semester: 6, code: '6.2', name: 'Production Management' },
+  { trade: 'Automobile Engineering', semester: 6, code: '6.3', name: 'Motor Vehicle Act and Transport Management' },
+  { trade: 'Automobile Engineering', semester: 6, code: '6.4', name: 'Program Elective' },
+  { trade: 'Automobile Engineering', semester: 6, code: '6.5', name: 'Automobile Repair, Maintenance and Driving Practice-II' },
+  { trade: 'Automobile Engineering', semester: 6, code: '6.6', name: 'Project Work' },
+
+  // ── PD AUTO / SEMESTER 7 ───────────────────────────────────────────
+  { trade: 'Automobile Engineering', semester: 7, code: '7.1', name: 'FDR' },
+  { trade: 'Automobile Engineering', semester: 7, code: '7.2', name: 'GMT' },
+  { trade: 'Automobile Engineering', semester: 7, code: '7.3', name: 'AT' },
+  { trade: 'Automobile Engineering', semester: 7, code: '7.4', name: 'TA-I' },
+  { trade: 'Automobile Engineering', semester: 7, code: '7.5', name: 'GP' },
 ]
 
 // ─── SEED FUNCTION ────────────────────────────────────────────────

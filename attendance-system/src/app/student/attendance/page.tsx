@@ -3,7 +3,9 @@
 import { useEffect, useState } from 'react'
 import { useAuth } from '@/lib/auth-context'
 import { useRouter } from 'next/navigation'
-import { getStudentAttendance, getAttendanceSummaryForStudent } from '@/lib/db'
+import { onSnapshot, collection, query, where } from 'firebase/firestore'
+import { db } from '@/lib/firebase'
+import { COLLECTIONS } from '@/lib/db'
 import type { StudentUser, AttendanceRecord, AttendanceSummary } from '@/types'
 import Loading from '@/components/ui/Loading'
 import Navbar from '@/components/shared/Navbar'
@@ -32,16 +34,48 @@ export default function StudentAttendancePage() {
   }, [loading, appUser, router])
 
   useEffect(() => {
-    if (!student) return
-    Promise.all([
-      getStudentAttendance(student.uid, student.trade, student.semester, student.section),
-      getAttendanceSummaryForStudent(student.uid, student.trade, student.semester, student.section),
-    ]).then(([recs, sums]) => {
-      setRecords(recs)
-      setSummaries(sums)
-      setDataLoading(false)
+  if (!student) return
+
+  const q = query(
+    collection(db, COLLECTIONS.ATTENDANCE),
+    where('trade', '==', student.trade),
+    where('semester', '==', student.semester),
+    where('section', '==', student.section),
+  )
+
+  const unsubscribe = onSnapshot(q, async (snap) => {
+    const recs = snap.docs
+      .map(d => ({ ...d.data(), id: d.id, markedAt: d.data().markedAt?.toDate() } as AttendanceRecord))
+      .filter(r => r.students.some(s => s.studentId === student.uid))
+      .sort((a, b) => b.date.localeCompare(a.date))
+
+    setRecords(recs)
+
+    // Recalculate summaries from fresh records
+    const summaryMap = new Map<string, AttendanceSummary>()
+    recs.forEach(record => {
+      const entry = record.students.find(s => s.studentId === student.uid)
+      if (!entry) return
+      if (!summaryMap.has(record.subjectId)) {
+        summaryMap.set(record.subjectId, {
+          studentId: student.uid, subjectId: record.subjectId,
+          subjectName: record.subjectName, totalClasses: 0,
+          present: 0, absent: 0, late: 0, percentage: 0,
+        })
+      }
+      const sum = summaryMap.get(record.subjectId)!
+      sum.totalClasses++
+      if (entry.status === 'present') sum.present++
+      else if (entry.status === 'absent') sum.absent++
+      else if (entry.status === 'late') sum.late++
+      sum.percentage = Math.round((sum.present / sum.totalClasses) * 100)
     })
-  }, [student])
+    setSummaries(Array.from(summaryMap.values()))
+    setDataLoading(false)
+  })
+
+  return () => unsubscribe()
+}, [student])
 
   if (loading || !student) return <Loading fullScreen />
 
@@ -57,6 +91,16 @@ export default function StudentAttendancePage() {
 
         {dataLoading ? <Loading text="Loading..." className="py-16" /> : (
           <>
+          {/* Overall card ← ADD IT HERE inside the return */}
+          <div className="card p-4 flex items-center gap-4">
+            <CircularChart percentage={overallPct} size={72} />
+            <div>
+              <p className="font-bold text-lg" style={{ color: 'var(--color-text)' }}>{overallPct}%</p>
+              <p className="text-sm" style={{ color: 'var(--color-text-muted)' }}>Overall Attendance</p>
+              <p className="text-xs mt-0.5" style={{ color: 'var(--color-text-muted)' }}>{totalPresent}/{totalClasses} classes</p>
+            </div>
+          </div>
+
             {/* Subject cards */}
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
               {summaries.map(s => (

@@ -38,7 +38,16 @@ export function getSemesterType(semester: number): 'odd' | 'even' {
 }
 
 export function getSemesterNumbers(type: 'odd' | 'even'): number[] {
-  return type === 'odd' ? [1, 3, 5] : [2, 4, 6]
+  return type === 'odd' ? [1, 3, 5, 7] : [2, 4, 6, 7]
+}
+
+export function getSemesterLabel(semester: number | string, trade?: string): string {
+  const semStr = String(semester)
+  if (semStr === '7' && trade) {
+    const t = trade.toString().toLowerCase()
+    if (t === 'ae' || t.includes('auto') || t.includes('automobile')) return 'PD Auto'
+  }
+  return `Sem ${semester}`
 }
 
 export const TRADES = [

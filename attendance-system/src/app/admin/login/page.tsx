@@ -14,8 +14,23 @@ import {
   HiOutlineArrowLeft,
 } from 'react-icons/hi'
 
+// Firebase error type guard — narrows unknown catch values to a typed error
+// object so we can safely access .code without casting to any.
+interface FirebaseError {
+  code: string
+  message: string
+}
+function isFirebaseError(err: unknown): err is FirebaseError {
+  return (
+    typeof err === 'object' &&
+    err !== null &&
+    'code' in err &&
+    typeof (err as FirebaseError).code === 'string'
+  )
+}
+
 export default function AdminLoginPage() {
-  const { signIn, appUser, loading } = useAuth()
+  const { signIn, signOut, appUser, loading } = useAuth()
   const router = useRouter()
 
   const [showPwd, setShowPwd] = useState(false)
@@ -28,7 +43,7 @@ export default function AdminLoginPage() {
 
   useEffect(() => {
     if (!loading && appUser?.role === 'admin') {
-      router.push('/admin/dashboard')
+      router.replace('/admin/dashboard')
     }
   }, [appUser, loading, router])
 
@@ -39,22 +54,25 @@ export default function AdminLoginPage() {
     try {
       const user = await signIn(form.email, form.password)
 
-      if (user.role !== 'admin') {
+      if (!user || user.role !== 'admin') {
         toast.error('Access denied. Admins only.')
+        await signOut()
         return
       }
 
       toast.success(`Welcome, ${user.displayName}!`)
-      router.push('/admin/dashboard')
-    } catch (err: any) {
-      const msg =
-        err?.code === 'auth/user-not-found'
+      router.replace('/admin/dashboard')
+    } catch (err: unknown) {
+      // FIX 3: narrowed from `any` to `unknown` with a type guard
+      const msg = isFirebaseError(err)
+        ? err.code === 'auth/user-not-found'
           ? 'No account found.'
-          : err?.code === 'auth/wrong-password'
+          : err.code === 'auth/wrong-password'
           ? 'Incorrect password.'
-          : err?.code === 'auth/invalid-credential'
+          : err.code === 'auth/invalid-credential'
           ? 'Invalid credentials.'
           : 'Something went wrong.'
+        : 'Something went wrong.'
 
       toast.error(msg)
     } finally {
@@ -79,6 +97,7 @@ export default function AdminLoginPage() {
       >
         <button
           type="button"
+          aria-label="Go back"
           onClick={() => router.push('/')}
           className="absolute top-6 left-6 z-20 w-11 h-11 rounded-full border border-white/20 bg-white/10 backdrop-blur-md flex items-center justify-center text-white hover:bg-white/20 transition-all duration-200"
         >
@@ -86,15 +105,14 @@ export default function AdminLoginPage() {
         </button>
 
         <div className="relative z-10 text-white max-w-xs">
-          {/* Replaced text emoji with dark blue SVG icon */}
           <div className="w-16 h-16 rounded-2xl bg-[#bcd6ff] flex items-center justify-center mb-8 p-3.5">
-            <svg 
-              xmlns="http://www.w3.org/2000/svg" 
-              viewBox="0 0 24 24" 
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              viewBox="0 0 24 24"
               className="w-full h-full"
             >
-              <path 
-                d="M12 1L3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4z" 
+              <path
+                d="M12 1L3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4z"
                 fill="#0A2540"
               />
             </svg>
@@ -133,6 +151,7 @@ export default function AdminLoginPage() {
           <div className="lg:hidden flex items-center justify-between mb-6">
             <button
               type="button"
+              aria-label="Go back"
               onClick={() => router.push('/')}
               className="w-10 h-10 rounded-full border flex items-center justify-center"
               style={{
@@ -143,7 +162,8 @@ export default function AdminLoginPage() {
             >
               <HiOutlineArrowLeft size={18} />
             </button>
-            <div />
+            {/* FIX 4: aria-hidden spacer instead of bare <div /> */}
+            <span aria-hidden="true" />
           </div>
 
           {/* Mobile Logo */}
@@ -184,9 +204,11 @@ export default function AdminLoginPage() {
                   style={{ color: 'var(--color-text-muted)' }}
                 />
 
+                {/* FIX 1a: autoComplete for browser/password-manager UX */}
                 <input
                   className="input pl-10"
                   type="email"
+                  autoComplete="email"
                   placeholder="admin@school.edu"
                   required
                   value={form.email}
@@ -210,9 +232,11 @@ export default function AdminLoginPage() {
                   style={{ color: 'var(--color-text-muted)' }}
                 />
 
+                {/* FIX 1b: autoComplete for browser/password-manager UX */}
                 <input
                   className="input pl-10 pr-10"
                   type={showPwd ? 'text' : 'password'}
+                  autoComplete="current-password"
                   placeholder="••••••••"
                   required
                   value={form.password}
@@ -224,9 +248,12 @@ export default function AdminLoginPage() {
                   }
                 />
 
+                {/* FIX 2: aria-pressed reflects persistent toggle state */}
                 <button
                   type="button"
-                  onClick={() => setShowPwd(!showPwd)}
+                  aria-label="Toggle password visibility"
+                  aria-pressed={showPwd}
+                  onClick={() => setShowPwd((prev) => !prev)}
                   className="absolute right-3.5 top-1/2 -translate-y-1/2"
                   style={{ color: 'var(--color-text-muted)' }}
                 >

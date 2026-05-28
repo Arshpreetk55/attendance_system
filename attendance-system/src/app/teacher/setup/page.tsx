@@ -2,19 +2,39 @@
 
 import { useEffect, useState, useRef } from 'react'
 import { useAuth } from '@/lib/auth-context'
-import { useRouter } from 'next/navigation'
-import { saveTimetable, getAllTrades, getSubjectsBySemester } from '@/lib/db'
-import { getSemesterNumbers, DAYS_OF_WEEK, PERIODS } from '@/lib/utils'
-import type { TeacherUser, DaySchedule, Period, Trade, Subject } from '@/types'
+import { useRouter, useSearchParams } from 'next/navigation'
+import { saveTimetable, 
+         getAllTrades, 
+         getSubjectsBySemester 
+        } from '@/lib/db'
+import { getSemesterLabel, 
+         getSemesterNumbers, 
+         DAYS_OF_WEEK, 
+         PERIODS 
+        } from '@/lib/utils'
+import type { TeacherUser, 
+              DaySchedule, 
+              Period, 
+              Trade, 
+              Subject 
+            } from '@/types'
 import Loading from '@/components/ui/Loading'
 import toast from 'react-hot-toast'
-import { HiOutlinePlus, HiOutlineTrash, HiOutlineShieldCheck, HiOutlineLockClosed, HiOutlinePhotograph } from 'react-icons/hi'
+import { HiOutlinePlus,
+         HiOutlineTrash, 
+        HiOutlineShieldCheck, 
+        HiOutlineLockClosed, 
+        HiOutlinePhotograph 
+        } from 'react-icons/hi'
+import Image from 'next/image'
 
 type ClassType = 'lecture' | 'practical'
 
 export default function TeacherSetupPage() {
   const { appUser, loading, changePassword, updateProfileInfo } = useAuth()
   const router = useRouter()
+  const searchParams = useSearchParams()
+  const returnTo = searchParams.get('returnTo') ?? '/teacher/dashboard'
   const teacher = appUser as TeacherUser | null
   const fileRef = useRef<HTMLInputElement>(null)
 
@@ -75,7 +95,8 @@ export default function TeacherSetupPage() {
     }
   }
 
-  const semesters = getSemesterNumbers(semesterType)
+  const isAutomobile = teacher?.department?.toLowerCase().includes('auto') ?? false
+const semesters = getSemesterNumbers(semesterType).filter(s => s !== 7 || isAutomobile)
   const selectedTrade = trades.find(t => t.name === newPeriod.trade)
   const tradeSections = selectedTrade?.sections ?? []
 
@@ -117,7 +138,7 @@ export default function TeacherSetupPage() {
       classType,
       practicalPeriods: classType === 'practical' ? periodCount : 1,
       periodNumber: newPeriod.periodFrom,
-    } as any
+    }
 
     setSchedule(prev => prev.map(d => {
       if (d.day !== newPeriod.day) return d
@@ -186,10 +207,10 @@ export default function TeacherSetupPage() {
       await changePassword(profileForm.currentPassword, profileForm.newPassword)
       const { updateUser } = await import('@/lib/db')
       const uid = (await import('@/lib/firebase')).auth.currentUser?.uid
-      if (uid) await updateUser(uid, { showProfileSetup: false } as any)
+      if (uid) await updateUser(uid, { showProfileSetup: false })
       toast.success('✅ Password changed successfully! Welcome to AttendX 🎉')
       setShowPasswordModal(false)
-      setTimeout(() => router.push('/teacher/dashboard'), 500)
+      setTimeout(() => router.push(returnTo), 500)
     } catch (err: any) {
       const msg = err?.code === 'auth/wrong-password' ? 'Current (temporary) password is incorrect.'
                 : err?.code === 'auth/weak-password' ? 'New password is too weak.'
@@ -203,9 +224,9 @@ export default function TeacherSetupPage() {
   const handleSkipPasswordSetup = async () => {
     const { updateUser } = await import('@/lib/db')
     const uid = (await import('@/lib/firebase')).auth.currentUser?.uid
-    if (uid) await updateUser(uid, { showProfileSetup: false } as any)
+    if (uid) await updateUser(uid, { showProfileSetup: false })
     setShowPasswordModal(false)
-    router.push('/teacher/dashboard')
+    router.push(returnTo)
   }
 
   if (loading || !teacher) return <Loading fullScreen />
@@ -230,13 +251,16 @@ export default function TeacherSetupPage() {
               </p>
             </div>
             <div className="flex flex-col items-center gap-2">
-              <div onClick={() => fileRef.current?.click()}
-                className="w-20 h-20 rounded-full border-2 border-dashed flex items-center justify-center cursor-pointer overflow-hidden hover:opacity-80 transition-opacity"
-                style={{ borderColor: 'var(--color-primary)' }}>
-                {profileForm.photoPreview
-                  ? <img src={profileForm.photoPreview} alt="Photo" className="w-full h-full object-cover" />
-                  : <HiOutlinePhotograph size={28} style={{ color: 'var(--color-text-muted)' }} />}
-              </div>
+  <div
+    onClick={() => fileRef.current?.click()}
+    className="relative w-20 h-20 rounded-full border-2 border-dashed flex items-center justify-center cursor-pointer overflow-hidden hover:opacity-80 transition-opacity"
+    style={{ borderColor: 'var(--color-primary)' }}
+  >
+    {profileForm.photoPreview
+      ? <Image src={profileForm.photoPreview} alt="Photo" fill className="object-cover" />
+      : <HiOutlinePhotograph size={28} style={{ color: 'var(--color-text-muted)' }} />}
+  </div>
+  
               <p className="text-xs" style={{ color: 'var(--color-text-muted)' }}>
                 Click to upload profile photo (optional)
               </p>
@@ -310,7 +334,9 @@ export default function TeacherSetupPage() {
         <div className="card p-5">
           <label className="label text-base font-semibold">Semester Type</label>
           <div className="flex gap-3 mt-2">
+
             {(['odd', 'even'] as const).map(t => (
+              
               <button key={t} onClick={() => setSemesterType(t)}
                 className="px-6 py-2.5 rounded-xl font-medium capitalize border transition-all"
                 style={{
@@ -318,7 +344,8 @@ export default function TeacherSetupPage() {
                   color: semesterType === t ? 'white' : 'var(--color-text)',
                   borderColor: semesterType === t ? 'var(--color-primary)' : 'var(--color-border)',
                 }}>
-                {t} ({getSemesterNumbers(t).join(', ')})
+                
+{t} ({getSemesterNumbers(t).filter(s => s !== 7 || isAutomobile).map(s => getSemesterLabel(s, teacher?.department ?? '')).join(', ')})
               </button>
             ))}
           </div>
@@ -461,7 +488,7 @@ export default function TeacherSetupPage() {
                 onChange={e => setNewPeriod(p => ({ ...p, semester: e.target.value, subjectId: '' }))}
                 disabled={!newPeriod.trade}>
                 <option value="">Select</option>
-                {semesters.map(s => <option key={s} value={s}>Sem {s}</option>)}
+                {semesters.map(s => <option key={s} value={s}>{getSemesterLabel(s, newPeriod.trade)}</option>)}
               </select>
             </div>
 
@@ -514,7 +541,7 @@ export default function TeacherSetupPage() {
                   <div className="flex flex-wrap gap-2">
                     {daySchedule.periods.map(period => {
                       const slot = PERIODS.find(p => p.startTime === period.startTime)
-                      const isLecture = (period as any).classType === 'lecture'
+                      const isLecture = period.classType === 'lecture'
                       return (
                         <div key={period.id} className="flex items-center gap-2 px-3 py-2 rounded-xl border text-sm"
                           style={{ background: 'var(--color-surface-2)', borderColor: 'var(--color-border)' }}>
@@ -534,7 +561,7 @@ export default function TeacherSetupPage() {
                           </span>
                           <span style={{ color: 'var(--color-text)' }}>{period.subjectName}</span>
                           <span className="text-xs" style={{ color: 'var(--color-text-muted)' }}>
-                            Sem {period.semester} · {period.section}
+                            {getSemesterLabel(period.semester, period.trade)} · {period.section}
                           </span>
                           {period.room && (
                             <span className="text-xs" style={{ color: 'var(--color-text-muted)' }}>{period.room}</span>
@@ -557,7 +584,7 @@ export default function TeacherSetupPage() {
           <button onClick={handleSubmit} disabled={submitting} className="btn-primary">
             {submitting ? 'Saving...' : 'Save Timetable & Continue →'}
           </button>
-          <button onClick={() => router.push('/teacher/dashboard')} className="btn-secondary">
+          <button onClick={() => router.push(returnTo)} className="btn-secondary">
             Skip for now
           </button>
         </div>

@@ -25,6 +25,7 @@ import {
   HiOutlineChartBar, HiOutlineTrendingUp,
 } from 'react-icons/hi'
 
+
 export default function StudentDashboard() {
   const { appUser, loading } = useAuth()
   const router = useRouter()

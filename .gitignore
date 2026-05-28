@@ -1,0 +1,67 @@
+# Repo-level ignores for safety and generated files
+
+# Sensitive
+.env
+*.env*
+serviceAccount*.json
+firebase-adminsdk*.json
+.firebase/
+firebase-debug.log
+firestore-debug.log
+ui-debug.log
+database-debug.log
+CREDENTIALS_TABLE.md
+
+# Archives / uploads
+*.zip
+uploads/
+generated/
+
+# Build / node
+node_modules/
+.next/
+dist/
+out/
+build/
+
+# Editor / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+npm-debug.log*
+build.log
+
+# Temporary/debug scripts (your project-specific ones)
+tmp-firestore-check.mjs
+tmp-firestore-query.mjs
+fix-sem4-firestore.mjs
+fix-sem4-uids.mjs
+check-admin.mjs
+check-sem4.mjs
+check-uid-mismatch.mjs
+diagnose-admin.mjs
+
+# Seed files
+seed-students.mjs
+seed-students2.mjs
+seed-students3.mjs
+seed-students4.mjs
+seed-students5.mjs
+seed-students6.mjs
+seed-students7.mjs
+seed-students8.mjs
+seed-students9.mjs
+seed-students10.mjs
+seed-students11.mjs
+seed-students12.mjs
+seed-teachers-new.mjs
+seed-sem4-auth.mjs
+seed.mjs
+
+# Next.js
+.env.local.example
+scripts/seed.js

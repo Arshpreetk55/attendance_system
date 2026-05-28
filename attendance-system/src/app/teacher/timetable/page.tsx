@@ -9,7 +9,7 @@ import Loading from '@/components/ui/Loading'
 import Navbar from '@/components/shared/Navbar'
 import Sidebar from '@/components/shared/Sidebar'
 import Link from 'next/link'
-import { DAYS_OF_WEEK } from '@/lib/utils'
+import { DAYS_OF_WEEK, getSemesterLabel } from '@/lib/utils'
 import {
   HiOutlineClipboardCheck, HiOutlineUsers, HiOutlineChartBar,
   HiOutlineCalendar, HiOutlineDocumentReport, HiOutlinePencil,
@@ -75,12 +75,12 @@ export default function TimetablePage() {
               <h1 className="page-title">My Timetable</h1>
               {timetable && (
                 <p className="text-sm mt-1" style={{ color: 'var(--color-text-muted)' }}>
-                  {timetable.semesterType === 'odd' ? 'Odd Semesters (1, 3, 5)' : 'Even Semesters (2, 4, 6)'}
+                  {timetable.semesterType === 'odd' ? 'Odd Semesters' : 'Even Semesters'}
                   · Effective from {timetable.effectiveFrom?.toLocaleDateString()}
                 </p>
               )}
             </div>
-            <Link href="/teacher/setup" className="btn-secondary gap-2">
+            <Link href={`/teacher/setup?returnTo=${isAdmin ? '/admin/dashboard' : '/teacher/dashboard'}`} className="btn-secondary gap-2">
               <HiOutlinePencil size={15} /> Edit Timetable
             </Link>
           </div>
@@ -93,7 +93,7 @@ export default function TimetablePage() {
               <p className="text-sm mb-4" style={{ color: 'var(--color-text-muted)' }}>
                 Set up your weekly schedule to enable automatic attendance loading.
               </p>
-              <Link href="/teacher/setup" className="btn-primary">Set Up Timetable →</Link>
+              <Link href={`/teacher/setup?returnTo=${isAdmin ? '/admin/dashboard' : '/teacher/dashboard'}`} className="btn-primary">Set Up Timetable →</Link>
             </div>
           ) : (
             <div className="space-y-4">
@@ -132,7 +132,7 @@ export default function TimetablePage() {
                                 <p className="font-semibold">{period.startTime} – {period.endTime}</p>
                                 <p className="font-medium mt-0.5">{period.subjectName}</p>
                                 <p className="text-xs mt-0.5 opacity-75">
-                                  {period.trade} · Sem {period.semester} · Sec {period.section}
+                                  {period.trade} · {getSemesterLabel(period.semester, period.trade)} · Sec {period.section}
                                   {period.room && ` · ${period.room}`}
                                 </p>
                               </div>

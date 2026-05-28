@@ -46,7 +46,7 @@ export default function TeacherLoginPage() {
         }
         toast.success(`Account verified! Let's set up your timetable.`)
         const { updateUser } = await import('@/lib/db')
-        await updateUser(user.uid, { showProfileSetup: true } as any)
+        await updateUser(user.uid, { showProfileSetup: true })
         router.replace('/teacher/setup')
       }
     } catch (err: any) {

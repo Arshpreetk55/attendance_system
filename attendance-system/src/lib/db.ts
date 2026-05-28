@@ -1,3 +1,4 @@
+//src/app/lib
 import {
   collection,
   doc,
@@ -15,13 +16,16 @@ import {
   writeBatch,
   onSnapshot,
   QueryConstraint,
+  DocumentData,
+  QueryDocumentSnapshot,
 } from 'firebase/firestore'
 import { db } from './firebase'
 import type {
   AppUser, TeacherUser, StudentUser, AttendanceRecord,
   Subject, Trade, Timetable, AttendanceSummary,
-  LowAttendanceStudent, StudentAttendance,
+  LowAttendanceStudent, StudentAttendance, Period,
 } from '@/types'
+
 
 // ─── Collections ──────────────────────────────────────────────────────────────
 export const COLLECTIONS = {
@@ -149,6 +153,17 @@ export async function getStudentsByTradeSemester(trade: string, semester: number
   return snap.docs.map(d => ({ ...d.data(), uid: d.id })) as StudentUser[]
 }
 
+// stat card of total students in dashboard
+export async function getStudentsByTrade(trade: string): Promise<StudentUser[]> {
+  const snap = await getDocs(
+    query(collection(db, COLLECTIONS.USERS),
+      where('role', '==', 'student'),
+      where('trade', '==', trade)
+    )
+  )
+  return snap.docs.map(d => ({ ...d.data(), uid: d.id } as StudentUser))
+}
+
 // ─── Attendance Operations ────────────────────────────────────────────────────
 
 export async function markAttendance(record: Omit<AttendanceRecord, 'id'>): Promise<string> {
@@ -255,11 +270,16 @@ export async function getSectionAttendanceByDate(
   )
   const snap = await getDocs(q)
   return snap.docs
-    .map(d => ({
-      ...(d.data() as Omit<AttendanceRecord, 'id' | 'markedAt'>),
-      id: d.id,
-      markedAt: (d.data() as any).markedAt?.toDate(),
-    }) as AttendanceRecord)
+    .map(d => {
+      const row = d.data() as Omit<AttendanceRecord, 'id' | 'markedAt'> & {
+        markedAt?: { toDate: () => Date }
+      }
+      return ({
+        ...row,
+        id: d.id,
+        markedAt: row.markedAt?.toDate(),
+      }) as AttendanceRecord
+    })
     .filter(r => r.trade === trade && r.semester === semester && r.section === section)
 }
 
@@ -267,29 +287,62 @@ export async function getLowAttendanceStudents(
   trade: string, semester: number, section: string, threshold = 75
 ): Promise<LowAttendanceStudent[]> {
   const students = await getStudentsBySection(trade, semester, section)
-  const result: LowAttendanceStudent[] = []
 
-  for (const student of students) {
-    const summaries = await getAttendanceSummaryForStudent(student.uid, trade, semester, section)
-    const totalClasses = summaries.reduce((a, s) => a + s.totalClasses, 0)
-    const totalPresent = summaries.reduce((a, s) => a + s.present, 0)
-    const overallPct = totalClasses > 0 ? Math.round((totalPresent / totalClasses) * 100) : 100
+  const results = await Promise.all(
+    students.map(async student => {
+      const summaries = await getAttendanceSummaryForStudent(student.uid, trade, semester, section)
+      const totalClasses = summaries.reduce((a, s) => a + s.totalClasses, 0)
+      const totalPresent = summaries.reduce((a, s) => a + s.present, 0)
+      const overallPct = totalClasses > 0 ? Math.round((totalPresent / totalClasses) * 100) : 100
 
-    if (overallPct < threshold) {
-      result.push({
-        studentId: student.uid,
-        rollNumber: student.rollNumber,
-        name: student.displayName,
-        percentage: overallPct,
-        subjectBreakdown: summaries.map(s => ({ subject: s.subjectName, percentage: s.percentage })),
-      })
-    }
-  }
+      if (overallPct < threshold) {
+        return {
+          studentId: student.uid,
+          rollNumber: student.rollNumber,
+          name: student.displayName,
+          percentage: overallPct,
+          subjectBreakdown: summaries.map(s => ({ subject: s.subjectName, percentage: s.percentage })),
+        } as LowAttendanceStudent
+      }
+      return null
+    })
+  )
 
-  return result.sort((a, b) => a.percentage - b.percentage)
+  return results
+    .filter((r): r is LowAttendanceStudent => r !== null)
+    .sort((a, b) => a.percentage - b.percentage)
 }
 
 // ─── Subject Operations ───────────────────────────────────────────────────────
+
+const FALLBACK_SUBJECTS: Record<string, Subject[]> = {
+  'Automobile Engineering|6': [
+    {
+      id: 'AE-6.1', trade: 'Automobile Engineering', semester: 6,
+      code: '6.1', name: 'Tractor, Farming Equipment and Earth Moving Machinery', weeklyHours: 0,
+    },
+    {
+      id: 'AE-6.2', trade: 'Automobile Engineering', semester: 6,
+      code: '6.2', name: 'Production Management', weeklyHours: 0,
+    },
+    {
+      id: 'AE-6.3', trade: 'Automobile Engineering', semester: 6,
+      code: '6.3', name: 'Motor Vehicle Act and Transport Management', weeklyHours: 0,
+    },
+    {
+      id: 'AE-6.4', trade: 'Automobile Engineering', semester: 6,
+      code: '6.4', name: 'Program Elective', weeklyHours: 0,
+    },
+    {
+      id: 'AE-6.5', trade: 'Automobile Engineering', semester: 6,
+      code: '6.5', name: 'Automobile Repair, Maintenance and Driving Practice-II', weeklyHours: 0,
+    },
+    {
+      id: 'AE-6.6', trade: 'Automobile Engineering', semester: 6,
+      code: '6.6', name: 'Project Work', weeklyHours: 0,
+    },
+  ],
+}
 
 export async function getSubjectsBySemester(trade: string, semester: number): Promise<Subject[]> {
   const q = query(
@@ -299,7 +352,10 @@ export async function getSubjectsBySemester(trade: string, semester: number): Pr
     orderBy('name')
   )
   const snap = await getDocs(q)
-  return snap.docs.map(d => ({ ...d.data(), id: d.id })) as Subject[]
+  const subjects = snap.docs.map(d => ({ ...d.data(), id: d.id })) as Subject[]
+  if (subjects.length > 0) return subjects
+  const fallbackKey = `${trade}|${semester}`
+  return FALLBACK_SUBJECTS[fallbackKey] ?? []
 }
 
 export async function getAllSubjects(): Promise<Subject[]> {
@@ -351,12 +407,45 @@ export async function getTimetableByTeacher(teacherId: string): Promise<Timetabl
   } as Timetable
 }
 
-export async function getTodayPeriodsForTeacher(teacherId: string): Promise<import('@/types').Period[]> {
+export async function getTodayPeriodsForTeacher(teacherId: string): Promise<Period[]> {
   const timetable = await getTimetableByTeacher(teacherId)
   if (!timetable) return []
   const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
   const today = days[new Date().getDay()]
-  const daySchedule = timetable.schedule.find(s => s.day === today)
+const daySchedule = timetable.schedule.find(
+  s => s.day.toLowerCase() === today.toLowerCase()
+)
+  return daySchedule?.periods ?? []
+}
+
+export async function getTodayPeriodsAndTimetable(teacherId: string): Promise<{
+  periods: Period[]
+  timetable: Timetable | null
+}> {
+  const timetable = await getTimetableByTeacher(teacherId)
+  if (!timetable) return { periods: [], timetable: null }
+  const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
+  const today = days[new Date().getDay()]
+  const daySchedule = timetable.schedule.find(
+    s => s.day.toLowerCase() === today.toLowerCase()
+  )
+  return { periods: daySchedule?.periods ?? [], timetable }
+}
+
+// Date-aware version — maps a calendar date to its weekday and returns
+// that day's periods. Used by RequestForm when requesting leave for a future date.
+// Using noon (T12:00:00) avoids timezone edge cases near midnight.
+export async function getPeriodsForTeacherOnDate(
+  teacherId: string,
+  date: string,   // 'YYYY-MM-DD'
+): Promise<Period[]> {
+  const timetable = await getTimetableByTeacher(teacherId)
+  if (!timetable) return []
+  const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
+  const dayName = days[new Date(`${date}T12:00:00`).getDay()]
+  const daySchedule = timetable.schedule.find(
+  s => s.day.toLowerCase() === dayName.toLowerCase()
+)
   return daySchedule?.periods ?? []
 }
 
@@ -390,6 +479,8 @@ export async function getNotifications(userId: string): Promise<import('@/types'
   })) as import('@/types').Notification[]
 }
 
+export { markAttendanceSafe } from './db/attendance'
+
 export async function markNotificationRead(id: string): Promise<void> {
   await updateDoc(doc(db, COLLECTIONS.NOTIFICATIONS, id), { read: true })
 }
@@ -414,22 +505,22 @@ export async function getAllTeachers(): Promise<import('@/types').AppUser[]> {
     )),
   ])
 
-  const mapDoc = (d: any) => ({
+  const mapDoc = (d: QueryDocumentSnapshot<DocumentData>): AppUser => ({
     ...d.data(),
     uid: d.id,
     createdAt: d.data().createdAt?.toDate(),
     updatedAt: d.data().updatedAt?.toDate(),
-  })
+  } as AppUser)
 
   const teachers = teacherSnap.docs.map(mapDoc)
   const admins = adminSnap.docs.map(mapDoc)
 
   // Merge, deduplicate by uid, sort by displayName
-  const all = [...teachers, ...admins]
-  const unique = Array.from(new Map(all.map(u => [(u as any).uid, u])).values())
+  const all: AppUser[] = [...teachers, ...admins]
+  const unique = Array.from(new Map(all.map(u => [u.uid, u])).values())
   return unique.sort((a, b) =>
-    ((a as any).displayName ?? '').localeCompare((b as any).displayName ?? '')
-  ) as import('@/types').AppUser[]
+    (a.displayName ?? '').localeCompare(b.displayName ?? '')
+  )
 }
 
 export async function deleteTeacherData(uid: string): Promise<void> {
@@ -450,4 +541,19 @@ export async function getAllStudents(): Promise<import('@/types').StudentUser[]>
     createdAt: d.data().createdAt?.toDate(),
     updatedAt: d.data().updatedAt?.toDate(),
   })) as import('@/types').StudentUser[]
+}
+
+export async function getAvailableSemesters(trade: string): Promise<number[]> {
+  const snap = await getDocs(
+    query(collection(db, COLLECTIONS.USERS),
+      where('role', '==', 'student'),
+      where('trade', '==', trade)
+    )
+  )
+  const sems = new Set<number>()
+  snap.docs.forEach(d => {
+    const sem = d.data().semester
+    if (typeof sem === 'number') sems.add(sem)
+  })
+  return Array.from(sems).sort((a, b) => a - b)
 }
