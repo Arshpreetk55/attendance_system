@@ -53,7 +53,11 @@ function getAllowedTrades(user: AppUser | null): string[] {
   return getTeacherBranches(user).map(code => BRANCH_TRADE[code])
 }
 
-export default function StudentsPage() {
+import { Suspense } from 'react'
+import Loading from '@/components/ui/Loading'
+
+function StudentsPage() {
+
   const { appUser, loading } = useAuth()
   const router = useRouter()
   const searchParams = useSearchParams()
@@ -364,5 +368,13 @@ export default function StudentsPage() {
         </div>
       </Modal>
     </div>
+  )
+}
+
+export default function StudentsPageWrapper() {
+  return (
+    <Suspense fallback={<Loading fullScreen />}>
+      <StudentsPage />
+    </Suspense>
   )
 }

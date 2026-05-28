@@ -29,8 +29,11 @@ import { HiOutlinePlus,
 import Image from 'next/image'
 
 type ClassType = 'lecture' | 'practical'
+import { Suspense } from 'react'
+import Loading from '@/components/ui/Loading'
 
-export default function TeacherSetupPage() {
+function TeacherSetupPage() {
+
   const { appUser, loading, changePassword, updateProfileInfo } = useAuth()
   const router = useRouter()
   const searchParams = useSearchParams()
@@ -590,5 +593,13 @@ const semesters = getSemesterNumbers(semesterType).filter(s => s !== 7 || isAuto
         </div>
       </div>
     </div>
+  )
+}
+
+export default function TeacherSetupPageWrapper() {
+  return (
+    <Suspense fallback={<Loading fullScreen />}>
+      <TeacherSetupPage />
+    </Suspense>
   )
 }
