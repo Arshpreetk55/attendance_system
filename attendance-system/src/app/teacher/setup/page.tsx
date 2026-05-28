@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState, useRef } from 'react'
+import { useEffect, useState, useRef, Suspense  } from 'react'
 import { useAuth } from '@/lib/auth-context'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { saveTimetable, 
@@ -29,8 +29,8 @@ import { HiOutlinePlus,
 import Image from 'next/image'
 
 type ClassType = 'lecture' | 'practical'
-import { Suspense } from 'react'
-import Loading from '@/components/ui/Loading'
+
+
 
 function TeacherSetupPage() {
 
