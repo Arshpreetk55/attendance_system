@@ -681,7 +681,7 @@ export default function AdminDashboardPage() {
     className="card p-4 flex items-center gap-3"
     style={{
       borderLeft: `4px solid ${card.color}`,
-      cursor: card.onClick !== undefined ? 'pointer' : 'default',
+      cursor: 'pointer',
     }}>
     <div className="w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0"
       style={{ background: `${card.color}20`, color: card.color }}>
