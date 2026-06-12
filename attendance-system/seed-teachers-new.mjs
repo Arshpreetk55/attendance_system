@@ -38,15 +38,46 @@ const auth = getAuth(app)
 
 // ── Credential helper ────────────────────────────────────────────────────────
 // email: firstname.dept@gndpc.edu  (lowercase, no spaces)
-// password: Name@123  (first word of name, capitalised + @123)
-// teacherId: first two words of name joined
-function makeCredentials(fullName, deptCode) {
-  const parts = fullName.trim().split(/\s+/)
-  const first = parts[0].toLowerCase().replace(/[^a-z]/g, '')
-  const email = `${first}.${deptCode.toLowerCase()}@gndpc.edu`
-  const pass  = parts[0].charAt(0).toUpperCase() + parts[0].slice(1).toLowerCase() + '@123'
-  const teacherId = parts.slice(0, 2).join(' ')
-  return { email, password: pass, teacherId }
+// password: Name@123  (first real name-word, capitalised + @123)
+// teacherId: first two words of the original name
+function normalizeName(fullName) {
+  return fullName
+    .trim()
+    .replace(/^(?:sh|dr|mr|ms|mrs|smt)\.?(?=\s+)/i, '')
+}
+
+function makeCredentials(fullName, deptCode, usedEmails = new Set()) {
+  const originalParts = fullName.trim().split(/\s+/)
+  const cleanName = normalizeName(fullName)
+  const parts = cleanName.trim().split(/\s+/).filter(Boolean)
+  const first = parts[0].replace(/[^a-zA-Z0-9]/g, '')
+
+  const baseEmail = `${first.toLowerCase()}.${deptCode.toLowerCase()}@gndpc.edu`
+  const basePassword = first.charAt(0).toUpperCase() + first.slice(1).toLowerCase() + '@123'
+
+  if (!usedEmails.has(baseEmail)) {
+    usedEmails.add(baseEmail)
+    return { email: baseEmail, password: basePassword, teacherId: originalParts.slice(0, 2).join(' ') }
+  }
+
+  const fallbackStem = parts
+    .slice(0, Math.min(parts.length, 3))
+    .map(part => part.replace(/[^a-zA-Z0-9]/g, '').toLowerCase())
+    .join('')
+
+  let email = `${fallbackStem}.${deptCode.toLowerCase()}@gndpc.edu`
+  let password = `${fallbackStem.charAt(0).toUpperCase()}${fallbackStem.slice(1)}@123`
+  let suffix = 2
+
+  while (usedEmails.has(email)) {
+    email = `${fallbackStem}${suffix}.${deptCode.toLowerCase()}@gndpc.edu`
+    password = `${fallbackStem.charAt(0).toUpperCase()}${fallbackStem.slice(1)}${suffix}@123`
+    suffix += 1
+  }
+
+  usedEmails.add(email)
+
+  return { email, password, teacherId: originalParts.slice(0, 2).join(' ') }
 }
 
 // ── Department definitions ───────────────────────────────────────────────────
@@ -188,8 +219,8 @@ async function deleteExistingStaff() {
 }
 
 // ── Create one user ───────────────────────────────────────────────────────────
-async function createStaffMember(person, dept) {
-  const creds = makeCredentials(person.name, dept.code)
+async function createStaffMember(person, dept, usedEmails) {
+  const creds = makeCredentials(person.name, dept.code, usedEmails)
 
   // Try creating Firebase Auth user
   let uid
@@ -242,6 +273,7 @@ async function main() {
 
   const allCredentials = []
   const seenEmails = new Set()  // CSE+IT share staff — avoid duplicate auth
+  const usedEmailsByDept = new Map()
 
   for (const dept of DEPARTMENTS) {
     console.log(`\n📂 ${dept.name} (${dept.code})`)
@@ -256,8 +288,11 @@ async function main() {
         continue
       }
 
+      const deptEmails = usedEmailsByDept.get(dept.code) || new Set()
+      usedEmailsByDept.set(dept.code, deptEmails)
+
       process.stdout.write(`   ${person.role === 'admin' ? '👑' : '👤'} ${person.name}... `)
-      const result = await createStaffMember(person, dept)
+      const result = await createStaffMember(person, dept, deptEmails)
       if (result) {
         seenEmails.add(creds.email)
         allCredentials.push(result)

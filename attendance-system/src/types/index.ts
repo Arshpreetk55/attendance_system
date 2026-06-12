@@ -113,6 +113,7 @@ export interface Period {
   classType?: 'lecture' | 'practical'
   practicalPeriods?: number
   adjustmentRequestId?: string | null
+    originalTeacherName?: string | null  
   periodLabel?: string
 }
 

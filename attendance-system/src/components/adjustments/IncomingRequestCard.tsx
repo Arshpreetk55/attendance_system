@@ -10,11 +10,11 @@ import {
   HiOutlineCalendar,
 } from 'react-icons/hi'
 import toast from 'react-hot-toast'
-import type { AdjustmentRequest, TeacherUser } from '@/types'
+import type { AdjustmentRequest, AdminUser , TeacherUser } from '@/types'
 
 interface IncomingRequestCardProps {
   request: AdjustmentRequest
-  currentTeacher: TeacherUser
+  currentTeacher: TeacherUser | AdminUser
   /** Optional callback fired after a successful accept/reject */
   onResponded?: (requestId: string, response: 'accepted' | 'rejected') => void
 }
@@ -169,39 +169,42 @@ export function IncomingRequestCard({
         </Chip>
       </div>
 
-      {/* Action buttons */}
-      <div className="flex gap-2 pt-1">
-        <button
-          onClick={() => respond('accepted')}
-          disabled={loading}
-          className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg text-xs font-semibold transition-all"
-          style={{
-            background: loading ? 'var(--color-surface-2)' : 'var(--color-primary)',
-            color:      loading ? 'var(--color-text-muted)' : 'white',
-            cursor:     loading ? 'not-allowed' : 'pointer',
-            opacity:    loading ? 0.7 : 1,
-          }}
-        >
-          <HiOutlineCheck size={14} />
-          {loading ? 'Saving…' : 'Accept'}
-        </button>
+      {/* Action buttons — only show if still pending */}
+      {request.status === 'pending' && (
+        <div className="flex gap-2 pt-1">
+          <button
+            onClick={() => respond('accepted')}
+            disabled={loading}
+            className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg text-xs font-semibold transition-all"
+            style={{
+              background: loading ? 'var(--color-surface-2)' : 'var(--color-primary)',
+              color:      loading ? 'var(--color-text-muted)' : 'white',
+              cursor:     loading ? 'not-allowed' : 'pointer',
+              opacity:    loading ? 0.7 : 1,
+            }}
+          >
+            <HiOutlineCheck size={14} />
+            {loading ? 'Saving…' : 'Accept'}
+          </button>
 
-        <button
-          onClick={() => respond('rejected')}
-          disabled={loading}
-          className="flex items-center justify-center gap-1.5 px-4 py-2 rounded-lg text-xs font-semibold border transition-all"
-          style={{
-            borderColor: 'var(--color-border)',
-            color:       loading ? 'var(--color-text-muted)' : 'var(--color-text)',
-            background:  'transparent',
-            cursor:      loading ? 'not-allowed' : 'pointer',
-            opacity:     loading ? 0.6 : 1,
-          }}
-        >
-          <HiOutlineX size={14} />
-          Decline
-        </button>
-      </div>
+          <button
+            onClick={() => respond('rejected')}
+            disabled={loading}
+            className="flex items-center justify-center gap-1.5 px-4 py-2 rounded-lg text-xs font-semibold border transition-all"
+            style={{
+              borderColor: 'var(--color-border)',
+              color:       loading ? 'var(--color-text-muted)' : 'var(--color-text)',
+              background:  'transparent',
+              cursor:      loading ? 'not-allowed' : 'pointer',
+              opacity:     loading ? 0.6 : 1,
+            }}
+          >
+            <HiOutlineX size={14} />
+            Decline
+          </button>
+        </div>
+      )}
+          
     </div>
   )
 }

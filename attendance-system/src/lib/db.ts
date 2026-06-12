@@ -437,16 +437,56 @@ export async function getTodayPeriodsAndTimetable(teacherId: string): Promise<{
 // Using noon (T12:00:00) avoids timezone edge cases near midnight.
 export async function getPeriodsForTeacherOnDate(
   teacherId: string,
-  date: string,   // 'YYYY-MM-DD'
+  date: string,
 ): Promise<Period[]> {
   const timetable = await getTimetableByTeacher(teacherId)
-  if (!timetable) return []
   const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
   const dayName = days[new Date(`${date}T12:00:00`).getDay()]
-  const daySchedule = timetable.schedule.find(
-  s => s.day.toLowerCase() === dayName.toLowerCase()
-)
-  return daySchedule?.periods ?? []
+  const daySchedule = timetable?.schedule.find(
+    s => s.day.toLowerCase() === dayName.toLowerCase()
+  )
+  const normalPeriods = daySchedule?.periods ?? []
+
+  // Pull in accepted/admin-assigned adjustments where this teacher is the substitute
+  const adjQ = query(
+    collection(db, 'adjustmentRequests'),
+    where('toTeacherId', '==', teacherId),
+    where('date', '==', date),
+    where('status', 'in', ['accepted', 'admin-assigned'])
+  )
+  const adjSnap = await getDocs(adjQ)
+
+  const reassignedOutQ = query(
+    collection(db, 'adjustmentRequests'),
+    where('fromTeacherId', '==', teacherId),
+    where('date', '==', date),
+    where('status', 'in', ['accepted', 'admin-assigned'])
+  )
+  const reassignedOutSnap = await getDocs(reassignedOutQ)
+  const reassignedPeriodIds = new Set(reassignedOutSnap.docs.map(d => d.data().periodId))
+
+  const filteredNormal = normalPeriods.filter(p => !reassignedPeriodIds.has(p.id))
+
+  const adjustmentPeriods: Period[] = adjSnap.docs.map(d => {
+    const data = d.data()
+    return {
+      id: `adj-${d.id}`,
+      startTime: data.startTime,
+      endTime: data.endTime,
+      subjectId: data.subjectCode ?? data.subject,
+      subjectName: data.subject,
+      subjectCode: data.subjectCode,
+      periodNumber: data.periodNumber,
+      trade: data.department,
+      semester: data.semester,
+      section: data.section,
+      room: data.room ?? undefined,
+      adjustmentRequestId: d.id,
+      originalTeacherName: data.fromTeacherName,
+    } as Period
+  })
+
+  return [...filteredNormal, ...adjustmentPeriods].sort((a, b) => a.startTime.localeCompare(b.startTime))
 }
 
 // ─── Notification Operations ──────────────────────────────────────────────────

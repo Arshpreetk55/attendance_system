@@ -252,6 +252,7 @@ const sidebarLinks = [
   { href: '/teacher/students',        label: 'Students',        icon: <HiOutlineUsers size={18} /> },
   { href: '/teacher/timetable',       label: 'Timetable',       icon: <HiOutlineCalendar size={18} /> },
   { href: '/teacher/reports',         label: 'Reports',         icon: <HiOutlineDocumentReport size={18} /> },
+  { href: '/teacher/adjustments', label: 'My Adjustments', icon: <HiOutlineRefresh size={18} /> },
 ]
 
 // ─────────────────────────────────────────────────────────────────────────────

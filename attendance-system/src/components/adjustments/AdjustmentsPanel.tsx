@@ -47,6 +47,7 @@ const STATUS_CONFIG: Record<string, { label: string; bg: string; color: string }
   'accepted':      { label: 'Accepted',      bg: '#10b98120', color: '#10b981' },
   'rejected':      { label: 'Rejected',      bg: '#ef444420', color: '#ef4444' },
   'cancelled':     { label: 'Cancelled',     bg: '#6b728020', color: '#6b7280' },
+  'admin-assigned': { label: 'Assigned', bg: '#10b98120', color: '#10b981' },
 }
 
 function StatusBadge({ status }: { status: string }) {

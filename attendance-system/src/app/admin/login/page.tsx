@@ -64,15 +64,21 @@ export default function AdminLoginPage() {
       router.replace('/admin/dashboard')
     } catch (err: unknown) {
       // FIX 3: narrowed from `any` to `unknown` with a type guard
-      const msg = isFirebaseError(err)
-        ? err.code === 'auth/user-not-found'
-          ? 'No account found.'
-          : err.code === 'auth/wrong-password'
-          ? 'Incorrect password.'
-          : err.code === 'auth/invalid-credential'
-          ? 'Invalid credentials.'
-          : 'Something went wrong.'
-        : 'Something went wrong.'
+      const msg = typeof err === 'object' && err !== null && 'message' in err && typeof (err as { message?: string }).message === 'string' && (err as { message?: string }).message?.includes('account profile is missing')
+        ? 'Your account profile is missing in the database. Please contact the admin to restore it.'
+        : typeof err === 'object' && err !== null && 'message' in err && typeof (err as { message?: string }).message === 'string' && (err as { message?: string }).message?.includes('User data not found')
+          ? 'Your account profile is missing in the database. Please contact the admin to restore it.'
+          : isFirebaseError(err)
+            ? err.code === 'auth/user-not-found'
+              ? 'No account found.'
+              : err.code === 'auth/wrong-password'
+                ? 'Incorrect password.'
+                : err.code === 'auth/invalid-credential'
+                  ? 'Invalid credentials.'
+                  : err.message
+                  ? err.message
+                  : 'Something went wrong.'
+            : 'Something went wrong.'
 
       toast.error(msg)
     } finally {

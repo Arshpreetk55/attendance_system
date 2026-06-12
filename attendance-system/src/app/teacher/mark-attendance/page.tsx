@@ -7,7 +7,7 @@ import {
   getPeriodsForTeacherOnDate, getStudentsBySection,
   markAttendanceSafe,
 } from '@/lib/db'
-import type { TeacherUser, Period, StudentUser, StudentAttendance, AttendanceStatus } from '@/types'
+import type { TeacherUser, AdminUser , Period, StudentUser, StudentAttendance, AttendanceStatus } from '@/types'
 import Loading from '@/components/ui/Loading'
 import Navbar from '@/components/shared/Navbar'
 import Sidebar from '@/components/shared/Sidebar'
@@ -56,7 +56,7 @@ const adminNavLinks = [
 export default function MarkAttendancePage() {
   const { appUser, loading } = useAuth()
   const router = useRouter()
-  const teacher = appUser as TeacherUser | null
+  const teacher = appUser as TeacherUser | AdminUser | null
   const isAdmin = appUser?.role === 'admin'
 
   const sidebarLinks = isAdmin ? adminSidebarLinks : teacherSidebarLinks
@@ -265,6 +265,19 @@ export default function MarkAttendancePage() {
                       {period.classType === 'practical' ? '🔬' : '🎓'}
                       {period.subjectName}
                       <span className="ml-1 text-xs opacity-70">{getSemesterLabel(period.semester, period.trade)} {period.section}</span>
+                      {period.adjustmentRequestId && period.originalTeacherName && (
+  <span
+    className="ml-1 text-xs font-semibold"
+    style={{
+      color:
+        selectedPeriod?.id === period.id
+          ? '#bfdbfe'
+          : 'var(--color-primary)',
+    }}
+  >
+    (Covering {period.originalTeacherName})
+  </span>
+)}
                       {period.practicalPeriods && period.practicalPeriods > 1 && (
                         <span className="ml-1 text-xs font-bold" style={{ color: selectedPeriod?.id === period.id ? '#e9d5ff' : '#7c3aed' }}>
                           ×{period.practicalPeriods}
@@ -283,14 +296,37 @@ export default function MarkAttendancePage() {
               {/* Header */}
               <div className="p-4 border-b flex flex-wrap items-center justify-between gap-3"
                 style={{ borderColor: 'var(--color-border)', background: 'var(--color-surface-2)' }}>
-                <div>
-                  <p className="font-semibold" style={{ color: 'var(--color-text)' }}>
-                    {selectedPeriod.subjectName}
-                  </p>
-                    <p className="text-xs mt-0.5" style={{ color: 'var(--color-text-muted)' }}>
-                    {selectedPeriod.trade} · {getSemesterLabel(selectedPeriod.semester, selectedPeriod.trade)} · Section {selectedPeriod.section} · {formatDate(date)}
-                    </p>
-                </div>
+                            <div>
+  <p
+    className="font-semibold"
+    style={{ color: 'var(--color-text)' }}
+  >
+    {selectedPeriod.subjectName}
+  </p>
+
+  {selectedPeriod.adjustmentRequestId &&
+    selectedPeriod.originalTeacherName && (
+      <p
+        className="text-xs mt-0.5 font-semibold"
+        style={{ color: 'var(--color-primary)' }}
+      >
+        Covering for: {selectedPeriod.originalTeacherName}
+      </p>
+  )}
+
+  <p
+    className="text-xs mt-0.5"
+    style={{ color: 'var(--color-text-muted)' }}
+  >
+    {selectedPeriod.trade} ·
+    {getSemesterLabel(
+      selectedPeriod.semester,
+      selectedPeriod.trade
+    )} ·
+    Section {selectedPeriod.section} ·
+    {formatDate(date)}
+  </p>
+</div>
                 <div className="flex items-center gap-4 text-sm">
                   <span className="flex items-center gap-1.5 text-green-600 font-semibold">
                     <HiOutlineCheck size={15} /> {presentCount} Present

@@ -62,11 +62,28 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const signIn = async (email: string, password: string): Promise<AppUser> => {
-    const { user: firebaseUser } = await signInWithEmailAndPassword(auth, email, password)
-    const userData = await getUserById(firebaseUser.uid)
-    if (!userData) throw new Error('User data not found')
-    setAppUser(userData)
-    return userData
+    try {
+      const { user: firebaseUser } = await signInWithEmailAndPassword(auth, email, password)
+      const userData = await getUserById(firebaseUser.uid)
+
+      if (!userData) {
+        await firebaseSignOut(auth)
+        const missingProfileError = new Error(
+          'Your account profile is missing in the database. Please contact the admin to restore it.'
+        ) as Error & { code?: string }
+        missingProfileError.code = 'auth/user-not-found'
+        throw missingProfileError
+      }
+
+      setAppUser(userData)
+      return userData
+    } catch (err) {
+      if (err instanceof Error && !(err as Error & { code?: string }).code) {
+        const typedErr = err as Error & { code?: string }
+        typedErr.code = 'auth/invalid-credential'
+      }
+      throw err
+    }
   }
 
   const signUp = async (

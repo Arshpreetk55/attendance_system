@@ -5,7 +5,7 @@ import { useAuth } from '@/lib/auth-context'
 import { useRouter } from 'next/navigation'
 import { subscribeIncomingRequests, subscribeOutgoingRequests } from '@/lib/db/adjustments'
 import { todayString } from '@/lib/utils'
-import type { TeacherUser } from '@/types'
+import type { TeacherUser, AdminUser } from '@/types'
 import Loading from '@/components/ui/Loading'
 import Navbar from '@/components/shared/Navbar'
 import Sidebar from '@/components/shared/Sidebar'
@@ -45,7 +45,9 @@ const sidebarLinks = [
 export default function AdjustmentsPage() {
   const { appUser, loading } = useAuth()
   const router = useRouter()
-  const teacher = appUser as TeacherUser | null
+  const teacher = appUser as TeacherUser | AdminUser | null
+
+  const [adminAssigned, setAdminAssigned] = useState<any[]>([])
 
   const [activeTab, setActiveTab] = useState<Tab>('incoming')
   const [pendingIncoming, setPendingIncoming] = useState<any[]>([])
@@ -71,15 +73,20 @@ export default function AdjustmentsPage() {
   useEffect(() => {
     if (!teacher) return
 
-    const unsubPending = subscribeIncomingRequests(
-      teacher.uid,
-      (reqs) => {
-        setPendingIncoming(reqs)
-        setDataLoading(false)
-      },
-      'pending'
-    )
+const unsubPending = subscribeIncomingRequests(
+  teacher.uid,
+  (reqs) => {
+    setPendingIncoming(reqs)
+    setDataLoading(false)
+  },
+  'pending'
+)
 
+const unsubAssigned = subscribeIncomingRequests(
+  teacher.uid,
+  (reqs) => setAdminAssigned(reqs),
+  'admin-assigned'
+)
     // allIncoming subscription — no status filter = full history
     const unsubAll = subscribeIncomingRequests(
       teacher.uid,
@@ -95,12 +102,12 @@ export default function AdjustmentsPage() {
       }
     )
 
-    return () => {
-      unsubPending()
-      unsubAll()
-      unsubOut()
-    }
-  }, [teacher])
+return () => {
+  unsubPending()
+  unsubAll()
+  unsubOut()
+  unsubAssigned()
+}  }, [teacher])
 
   const today = useMemo(() => todayString(), [])
 
@@ -116,8 +123,9 @@ export default function AdjustmentsPage() {
 
   // History = allIncoming minus what's already in pendingIncoming
   const pendingIds = new Set(pendingIncoming.map((r: any) => r.id))
-  const historyRequests = allIncoming.filter((r: any) => !pendingIds.has(r.id))
-
+  const historyRequests = allIncoming.filter(
+  r => !pendingIds.has(r.id) && r.status !== 'admin-assigned'
+)
   return (
     <div className="min-h-screen flex" style={{ background: 'var(--color-bg)' }}>
       <Sidebar links={sidebarLinks} portalName="Teacher" />
@@ -210,6 +218,21 @@ export default function AdjustmentsPage() {
                   </div>
                 </div>
               </div>
+
+              {adminAssigned.length > 0 && (
+  <div className="space-y-2">
+    <p className="text-xs font-semibold uppercase tracking-wide" style={{ color: 'var(--color-text-muted)' }}>
+      Assigned by Admin
+    </p>
+    {adminAssigned.map(request => (
+      <IncomingRequestCard
+        key={request.id}
+        request={request}
+        currentTeacher={teacher}
+      />
+    ))}
+  </div>
+)}
 
               {/* Tabs */}
               <div className="flex gap-2 border-b" style={{ borderColor: 'var(--color-border)' }}>

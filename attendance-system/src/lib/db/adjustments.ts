@@ -90,7 +90,7 @@ export async function getAvailableSubstitutes(params: {
       collection(db, ADJUSTMENT_COLLECTION),
       where('departmentCode', '==', departmentCode),
       where('date', '==', date),
-      where('status', 'in', ['accepted', 'admin-pending']),
+      where('status', 'in', ['accepted', 'admin-pending', 'admin-assigned']),
     )),
 
     getDocs(query(

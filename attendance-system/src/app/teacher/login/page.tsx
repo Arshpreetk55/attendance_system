@@ -50,10 +50,19 @@ export default function TeacherLoginPage() {
         router.replace('/teacher/setup')
       }
     } catch (err: any) {
-      const msg = err?.code === 'auth/user-not-found' ? 'No account found. Ask your admin to create one.'
-        : err?.code === 'auth/wrong-password' ? 'Incorrect password.'
-        : err?.code === 'auth/invalid-credential' ? 'Invalid email or password.'
-        : 'Something went wrong. Please try again.'
+      const msg = err?.message?.includes('account profile is missing')
+        ? 'Your account profile is missing in the database. Please contact the admin to restore it.'
+        : err?.message?.includes('User data not found')
+          ? 'Your account profile is missing in the database. Please contact the admin to restore it.'
+          : err?.code === 'auth/user-not-found'
+            ? 'No account found. Ask your admin to create one.'
+            : err?.code === 'auth/wrong-password'
+              ? 'Incorrect password.'
+              : err?.code === 'auth/invalid-credential'
+                ? 'Invalid email or password.'
+                : err?.message
+                  ? err.message
+                  : 'Something went wrong. Please try again.'
       toast.error(msg)
     } finally {
       setSubmitting(false)

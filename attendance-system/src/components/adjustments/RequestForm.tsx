@@ -13,7 +13,7 @@ import {
   HiOutlineExclamationCircle,
 } from 'react-icons/hi'
 import toast from 'react-hot-toast'
-import type { TeacherUser, Period } from '@/types'
+import type { TeacherUser, AdminUser, Period } from '@/types'
 
 import {
   createAdjustmentRequest,
@@ -80,7 +80,7 @@ interface SubstituteOption {
 }
 
 interface RequestFormProps {
-  teacher: TeacherUser
+  teacher: TeacherUser | AdminUser
   onSuccess?: (requestId: string) => void
   onCancel?: () => void
 }
