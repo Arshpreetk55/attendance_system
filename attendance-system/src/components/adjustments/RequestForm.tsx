@@ -193,7 +193,7 @@ const [workflowType, setWorkflowType] =
     setSelectedSub(null)
     try {
       const subs = await getAvailableSubstitutes({
-        departmentCode: teacher.departmentCode,
+        departmentCode: teacher.departmentCode ?? '',
         date:           selectedDate,
         periodId:       selectedPeriod.id,
         excludeUid:     teacher.uid,
@@ -251,8 +251,8 @@ function getPeriodNumber(period: Period): number {
         fromTeacher: {
           uid:            teacher.uid,
           name:           teacher.displayName,
-          department:     teacher.department,
-          departmentCode: teacher.departmentCode,
+          department:     teacher.department??'',
+          departmentCode: teacher.departmentCode ?? '',
         },
         date:        selectedDate,
         period: {
@@ -276,8 +276,8 @@ function getPeriodNumber(period: Period): number {
         fromTeacher: {
           uid:            teacher.uid,
           name:           teacher.displayName,
-          department:     teacher.department,
-          departmentCode: teacher.departmentCode,
+          department:     teacher.department??'',
+          departmentCode: teacher.departmentCode ?? '',
         },
         toTeacher: {
           uid:  selectedSub.uid,
