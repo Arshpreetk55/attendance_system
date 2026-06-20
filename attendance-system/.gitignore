@@ -92,6 +92,7 @@ check-*.mjs
 diagnose-*.mjs
 fix-*.mjs
 tmp-*.mjs
+scripts/scripts/dedupAttendance.ts
 
 # =========================
 # Optional uploads / generated data
@@ -107,3 +108,22 @@ firebase-debug.log
 firestore-debug.log
 ui-debug.log
 database-debug.log
+
+# =========================
+# Seed / temp scripts
+# =========================
+tmp-firestore-check.mjs
+tmp-firestore-query.mjs
+fix-sem4-firestore.mjs
+fix-sem4-uids.mjs
+check-admin.mjs
+check-sem4.mjs
+check-uid-mismatch.mjs
+diagnose-admin.mjs
+seed-students*.mjs
+seed-teachers-new.mjs
+seed-sem4-auth.mjs
+seed.mjs
+scripts/seed.js
+.env.local.example
+*.log

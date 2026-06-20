@@ -1,12 +1,12 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useMemo } from 'react'
 import { useAuth } from '@/lib/auth-context'
 import { useRouter } from 'next/navigation'
 import {
   getStudentsBySection, getAllTrades, getAvailableSemesters,
 } from '@/lib/db'
-import { getDocs, collection, query, where, orderBy } from 'firebase/firestore'
+import { getDocs, collection, query, where } from 'firebase/firestore'
 import { db } from '@/lib/firebase'
 import { COLLECTIONS } from '@/lib/db'
 import type { TeacherUser, StudentUser, AttendanceRecord, Trade, AppUser } from '@/types'
@@ -36,20 +36,66 @@ const BRANCH_TRADE: Record<Branch, string> = {
   AE:  'Automobile Engineering',
 }
 
+// ─── Per-student per-subject per-date summary row ─────────────────────────────
+interface PreviewRow {
+  date: string
+  rollNumber: string
+  studentName: string
+  subject: string
+  periodsPresent: number
+  totalPeriods: number
+  pct: number
+}
+
+function buildPreviewRows(records: AttendanceRecord[], students: StudentUser[]): PreviewRow[] {
+  const rows: PreviewRow[] = []
+
+  students.forEach(student => {
+    const grouped = new Map<string, { date: string; subject: string; present: number; total: number }>()
+
+    records.forEach(record => {
+      const entry = record.students.find(s => s.studentId === student.uid)
+      if (!entry) return
+
+      const key = `${record.date}__${record.subjectId}`
+      if (!grouped.has(key)) {
+        grouped.set(key, { date: record.date, subject: record.subjectName, present: 0, total: 0 })
+      }
+      const g = grouped.get(key)!
+      g.total++
+      if (entry.status === 'present' || entry.status === 'late') g.present++
+    })
+
+    grouped.forEach(({ date, subject, present, total }) => {
+      rows.push({
+        date,
+        rollNumber: student.rollNumber ?? '',
+        studentName: student.displayName ?? '',
+        subject,
+        periodsPresent: present,
+        totalPeriods: total,
+        pct: total > 0 ? Math.round((present / total) * 100) : 0,
+      })
+    })
+  })
+
+  return rows.sort((a, b) => {
+    const d = b.date.localeCompare(a.date)
+    if (d !== 0) return d
+    return a.rollNumber.localeCompare(b.rollNumber, undefined, { numeric: true })
+  })
+}
+
 function getTeacherBranches(user: AppUser | null): Branch[] {
   if (!user || (user.role !== 'teacher' && user.role !== 'admin')) return []
   const teacher = user as TeacherUser | import('@/types').AdminUser
   const codes: string[] = teacher.departmentCodes ?? [teacher.departmentCode ?? '']
   const teacherDeptCode = teacher.departmentCode
 
-  if (teacherDeptCode === 'AS') {
-    return [...FIRST_YEAR_BRANCHES]
-  }
+  if (teacherDeptCode === 'AS') return [...FIRST_YEAR_BRANCHES]
 
   const valid = codes.filter((c): c is Branch => FIRST_YEAR_BRANCHES.includes(c as Branch))
-  if (valid.includes('CSE')) {
-    return ['CSE', 'IT']
-  }
+  if (valid.includes('CSE')) return ['CSE', 'IT']
   return Array.from(new Set(valid))
 }
 
@@ -105,12 +151,14 @@ export default function ReportsPage() {
   const selectedTrade = trades.find(t => t.name === filter.trade)
   const availableSections = selectedTrade?.sections ?? SECTIONS
 
+  // Build summarized preview rows — same logic as export
+  const previewRows = useMemo(() => buildPreviewRows(records, students), [records, students])
+
   const fetchData = async () => {
     if (!filter.trade || !filter.semester || !filter.section) {
       toast.error('Select trade, semester and section')
       return
     }
-
     if (filter.dateFrom && filter.dateTo && filter.dateFrom > filter.dateTo) {
       toast.error('From date cannot be after To date')
       return
@@ -129,16 +177,16 @@ export default function ReportsPage() {
       )
       const snap = await getDocs(q)
       const recs = snap.docs.map(d => {
-  const data = d.data()
-  const rawMarkedAt = data.markedAt
-  const markedAt =
-    rawMarkedAt && typeof rawMarkedAt.toDate === 'function'
-      ? rawMarkedAt.toDate()
-      : rawMarkedAt instanceof Date
-        ? rawMarkedAt
-        : undefined
-  return { ...data, id: d.id, markedAt }
-}) as AttendanceRecord[]
+        const data = d.data()
+        const rawMarkedAt = data.markedAt
+        const markedAt =
+          rawMarkedAt && typeof rawMarkedAt.toDate === 'function'
+            ? rawMarkedAt.toDate()
+            : rawMarkedAt instanceof Date
+              ? rawMarkedAt
+              : undefined
+        return { ...data, id: d.id, markedAt }
+      }) as AttendanceRecord[]
 
       const filteredRecs = recs
         .filter(r => {
@@ -151,10 +199,9 @@ export default function ReportsPage() {
       setRecords(filteredRecs)
       toast.success(`Loaded ${filteredRecs.length} records for ${stds.length} students`)
     } catch (err) {
-  console.error('Report fetch error:', err)
-  toast.error(err instanceof Error ? `Failed to load: ${err.message}` : 'Failed to load data')
-} finally {
-
+      console.error('Report fetch error:', err)
+      toast.error(err instanceof Error ? `Failed to load: ${err.message}` : 'Failed to load data')
+    } finally {
       setFetching(false)
     }
   }
@@ -179,7 +226,7 @@ export default function ReportsPage() {
         toast.success('PDF downloaded!')
       }
     } catch (err) {
-      toast.error('Export failed')
+      toast.error(err instanceof Error ? err.message : 'Export failed')
     }
   }
 
@@ -196,7 +243,6 @@ export default function ReportsPage() {
           {/* Filter Card */}
           <div className="card p-5">
             <h2 className="section-title mb-4">Generate Report</h2>
-      
             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
               <div>
                 <label className="label">Trade</label>
@@ -243,17 +289,17 @@ export default function ReportsPage() {
           </div>
 
           {/* Export Buttons */}
-          {records.length > 0 && (
+          {previewRows.length > 0 && (
             <div className="card p-5">
               <h2 className="section-title mb-1">Export Options</h2>
               <p className="text-sm mb-4" style={{ color: 'var(--color-text-muted)' }}>
-                {records.length} records · {students.length} students
+                {previewRows.length} summarized rows · {students.length} students
               </p>
               <div className="flex flex-wrap gap-3">
                 {[
-                  { format: 'csv' as const, label: 'Download CSV', icon: '📄', color: 'bg-green-50 text-green-700 border-green-200' },
+                  { format: 'csv'   as const, label: 'Download CSV',   icon: '📄', color: 'bg-green-50 text-green-700 border-green-200' },
                   { format: 'excel' as const, label: 'Download Excel', icon: '📊', color: 'bg-emerald-50 text-emerald-700 border-emerald-200' },
-                  { format: 'pdf' as const, label: 'Download PDF', icon: '📑', color: 'bg-red-50 text-red-700 border-red-200' },
+                  { format: 'pdf'   as const, label: 'Download PDF',   icon: '📑', color: 'bg-red-50 text-red-700 border-red-200' },
                 ].map(btn => (
                   <button key={btn.format} onClick={() => handleExport(btn.format)}
                     className={`flex items-center gap-2 px-5 py-2.5 rounded-xl font-semibold text-sm border transition-all hover:shadow-md ${btn.color}`}>
@@ -266,39 +312,40 @@ export default function ReportsPage() {
             </div>
           )}
 
-          {/* Preview Table */}
-          {records.length > 0 && (
+          {/* Preview Table — matches export exactly */}
+          {previewRows.length > 0 && (
             <div className="card overflow-hidden">
               <div className="p-4 border-b" style={{ borderColor: 'var(--color-border)', background: 'var(--color-surface-2)' }}>
                 <h2 className="section-title">Report Preview</h2>
+                <p className="text-xs mt-1" style={{ color: 'var(--color-text-muted)' }}>
+                  One row per student · subject · date — periods counted correctly
+                </p>
               </div>
               <div className="overflow-x-auto max-h-96">
                 <table className="w-full text-sm">
                   <thead className="sticky top-0" style={{ background: 'var(--color-surface-2)' }}>
                     <tr>
-                      {['Date', 'Subject', 'Present', 'Absent', 'Total', '%'].map(h => (
-                        <th key={h} className="text-left px-5 py-3 text-xs font-semibold uppercase tracking-wider"
+                      {['Date', 'Roll No.', 'Student Name', 'Subject', 'Present', 'Total', '%'].map(h => (
+                        <th key={h} className="text-left px-4 py-3 text-xs font-semibold uppercase tracking-wider"
                           style={{ color: 'var(--color-text-muted)' }}>{h}</th>
                       ))}
                     </tr>
                   </thead>
                   <tbody className="divide-y" style={{ borderColor: 'var(--color-border)' }}>
-                    {records.map(r => {
-                      const present = r.students.filter(s => s.status === 'present').length
-                      const absent = r.students.filter(s => s.status === 'absent').length
-                      const total = r.students.length
-                      const pct = total > 0 ? Math.round((present / total) * 100) : 0
-                      return (
-                        <tr key={r.id} style={{ background: 'var(--color-surface)' }}>
-                          <td className="px-5 py-3" style={{ color: 'var(--color-text)' }}>{r.date}</td>
-                          <td className="px-5 py-3 font-medium" style={{ color: 'var(--color-text)' }}>{r.subjectName}</td>
-                          <td className="px-5 py-3 text-green-600 font-semibold">{present}</td>
-                          <td className="px-5 py-3 text-red-500 font-semibold">{absent}</td>
-                          <td className="px-5 py-3" style={{ color: 'var(--color-text-muted)' }}>{total}</td>
-                          <td className="px-5 py-3 font-bold" style={{ color: pct >= 75 ? '#16a34a' : '#dc2626' }}>{pct}%</td>
-                        </tr>
-                      )
-                    })}
+                    {previewRows.map((r, i) => (
+                      <tr key={i} style={{ background: 'var(--color-surface)' }}>
+                        <td className="px-4 py-3" style={{ color: 'var(--color-text)' }}>{r.date}</td>
+                        <td className="px-4 py-3" style={{ color: 'var(--color-text-muted)' }}>{r.rollNumber}</td>
+                        <td className="px-4 py-3 font-medium" style={{ color: 'var(--color-text)' }}>{r.studentName}</td>
+                        <td className="px-4 py-3" style={{ color: 'var(--color-text)' }}>{r.subject}</td>
+                        <td className="px-4 py-3 text-green-600 font-semibold">{r.periodsPresent}</td>
+                        <td className="px-4 py-3" style={{ color: 'var(--color-text-muted)' }}>{r.totalPeriods}</td>
+                        <td className="px-4 py-3 font-bold"
+                          style={{ color: r.pct >= 75 ? '#16a34a' : '#dc2626' }}>
+                          {r.pct}%
+                        </td>
+                      </tr>
+                    ))}
                   </tbody>
                 </table>
               </div>
