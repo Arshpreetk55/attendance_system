@@ -515,7 +515,7 @@ export default function AdminDashboardPage() {
     return () => unsub()
   }, [adminDeptCode])
 
-  const effectiveYearFilter:   YearFilter   = isAsAdmin ? 'all' : yearFilter
+  const effectiveYearFilter:   YearFilter   = isAsAdmin ? '1st' : yearFilter
   const effectiveBranchFilter: BranchFilter =
     (isAsAdmin && activeTab === 'teachers') ? 'all' : branchFilter
 

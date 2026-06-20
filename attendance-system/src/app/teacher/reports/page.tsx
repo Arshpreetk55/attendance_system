@@ -110,31 +110,51 @@ export default function ReportsPage() {
       toast.error('Select trade, semester and section')
       return
     }
+
+    if (filter.dateFrom && filter.dateTo && filter.dateFrom > filter.dateTo) {
+      toast.error('From date cannot be after To date')
+      return
+    }
+
     setFetching(true)
     try {
       const stds = await getStudentsBySection(filter.trade, parseInt(filter.semester), filter.section)
       setStudents(stds)
 
-      const constraints: any[] = [
+      const q = query(
+        collection(db, COLLECTIONS.ATTENDANCE),
         where('trade', '==', filter.trade),
         where('semester', '==', parseInt(filter.semester)),
         where('section', '==', filter.section),
-        orderBy('date', 'desc'),
-      ]
-      if (filter.dateFrom) constraints.push(where('date', '>=', filter.dateFrom))
-      if (filter.dateTo) constraints.push(where('date', '<=', filter.dateTo))
-
-      const q = query(collection(db, COLLECTIONS.ATTENDANCE), ...constraints)
+      )
       const snap = await getDocs(q)
-      const recs = snap.docs.map(d => ({
-        ...d.data(), id: d.id,
-        markedAt: d.data().markedAt?.toDate(),
-      })) as AttendanceRecord[]
-      setRecords(recs)
-      toast.success(`Loaded ${recs.length} records for ${stds.length} students`)
+      const recs = snap.docs.map(d => {
+  const data = d.data()
+  const rawMarkedAt = data.markedAt
+  const markedAt =
+    rawMarkedAt && typeof rawMarkedAt.toDate === 'function'
+      ? rawMarkedAt.toDate()
+      : rawMarkedAt instanceof Date
+        ? rawMarkedAt
+        : undefined
+  return { ...data, id: d.id, markedAt }
+}) as AttendanceRecord[]
+
+      const filteredRecs = recs
+        .filter(r => {
+          if (filter.dateFrom && r.date < filter.dateFrom) return false
+          if (filter.dateTo && r.date > filter.dateTo) return false
+          return true
+        })
+        .sort((a, b) => b.date.localeCompare(a.date))
+
+      setRecords(filteredRecs)
+      toast.success(`Loaded ${filteredRecs.length} records for ${stds.length} students`)
     } catch (err) {
-      toast.error('Failed to load data')
-    } finally {
+  console.error('Report fetch error:', err)
+  toast.error(err instanceof Error ? `Failed to load: ${err.message}` : 'Failed to load data')
+} finally {
+
       setFetching(false)
     }
   }

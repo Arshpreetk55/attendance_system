@@ -23,7 +23,7 @@ import { db } from './firebase'
 import type {
   AppUser, TeacherUser, StudentUser, AttendanceRecord,
   Subject, Trade, Timetable, AttendanceSummary,
-  LowAttendanceStudent, StudentAttendance, Period,
+  LowAttendanceStudent, Period,
 } from '@/types'
 
 
@@ -81,15 +81,18 @@ export async function getStudentsBySection(
     where('trade', '==', trade),
     where('semester', '==', semester),
     where('section', '==', section),
-    orderBy('rollNumber')
   )
   const snap = await getDocs(q)
-  return snap.docs.map(d => ({
+  const students = snap.docs.map(d => ({
     ...d.data(),
     uid: d.id,
     createdAt: d.data().createdAt?.toDate(),
     updatedAt: d.data().updatedAt?.toDate(),
   })) as StudentUser[]
+
+  return students.sort((a, b) =>
+    (a.rollNumber ?? '').localeCompare(b.rollNumber ?? '', undefined, { numeric: true })
+  )
 }
 
 export async function getStudentByCredentials(
@@ -207,6 +210,7 @@ export async function getAttendanceByDateSubject(
   } as AttendanceRecord
 }
 
+
 export async function getStudentAttendance(
   studentId: string, trade: string, semester: number, section: string
 ): Promise<AttendanceRecord[]> {
@@ -261,6 +265,7 @@ export async function getAttendanceSummaryForStudent(
   return Array.from(summaryMap.values())
 }
 
+
 export async function getSectionAttendanceByDate(
   date: string, trade: string, semester: number, section: string
 ): Promise<AttendanceRecord[]> {
@@ -283,30 +288,79 @@ export async function getSectionAttendanceByDate(
     .filter(r => r.trade === trade && r.semester === semester && r.section === section)
 }
 
+export async function getAttendanceRecordsForSection(
+  trade: string, semester: number, section: string
+): Promise<AttendanceRecord[]> {
+  const q = query(
+    collection(db, COLLECTIONS.ATTENDANCE),
+    where('trade', '==', trade),
+    where('semester', '==', semester),
+    where('section', '==', section),
+  )
+  const snap = await getDocs(q)
+  return snap.docs.map(d => ({
+    ...d.data(),
+    id: d.id,
+    markedAt: d.data().markedAt?.toDate(),
+  })) as AttendanceRecord[]
+}
+
+function buildAttendanceSummaries(records: AttendanceRecord[], studentId: string): AttendanceSummary[] {
+  const summaryMap = new Map<string, AttendanceSummary>()
+
+  records.forEach(record => {
+    const studentEntry = record.students.find(s => s.studentId === studentId)
+    if (!studentEntry) return
+
+    if (!summaryMap.has(record.subjectId)) {
+      summaryMap.set(record.subjectId, {
+        studentId,
+        subjectId: record.subjectId,
+        subjectName: record.subjectName,
+        totalClasses: 0,
+        present: 0,
+        absent: 0,
+        late: 0,
+        percentage: 0,
+      })
+    }
+
+    const summary = summaryMap.get(record.subjectId)!
+    summary.totalClasses++
+    if (studentEntry.status === 'present') summary.present++
+    else if (studentEntry.status === 'absent') summary.absent++
+    else if (studentEntry.status === 'late') summary.late++
+    summary.percentage = Math.round((summary.present / summary.totalClasses) * 100)
+  })
+
+  return Array.from(summaryMap.values())
+}
+
 export async function getLowAttendanceStudents(
   trade: string, semester: number, section: string, threshold = 75
 ): Promise<LowAttendanceStudent[]> {
-  const students = await getStudentsBySection(trade, semester, section)
+  const [students, records] = await Promise.all([
+    getStudentsBySection(trade, semester, section),
+    getAttendanceRecordsForSection(trade, semester, section),
+  ])
 
-  const results = await Promise.all(
-    students.map(async student => {
-      const summaries = await getAttendanceSummaryForStudent(student.uid, trade, semester, section)
-      const totalClasses = summaries.reduce((a, s) => a + s.totalClasses, 0)
-      const totalPresent = summaries.reduce((a, s) => a + s.present, 0)
-      const overallPct = totalClasses > 0 ? Math.round((totalPresent / totalClasses) * 100) : 100
+  const results = students.map(student => {
+    const summaries = buildAttendanceSummaries(records, student.uid)
+    const totalClasses = summaries.reduce((a, s) => a + s.totalClasses, 0)
+    const totalPresent = summaries.reduce((a, s) => a + s.present, 0)
+    const overallPct = totalClasses > 0 ? Math.round((totalPresent / totalClasses) * 100) : 100
 
-      if (overallPct < threshold) {
-        return {
-          studentId: student.uid,
-          rollNumber: student.rollNumber,
-          name: student.displayName,
-          percentage: overallPct,
-          subjectBreakdown: summaries.map(s => ({ subject: s.subjectName, percentage: s.percentage })),
-        } as LowAttendanceStudent
-      }
-      return null
-    })
-  )
+    if (overallPct < threshold) {
+      return {
+        studentId: student.uid,
+        rollNumber: student.rollNumber,
+        name: student.displayName,
+        percentage: overallPct,
+        subjectBreakdown: summaries.map(s => ({ subject: s.subjectName, percentage: s.percentage })),
+      } as LowAttendanceStudent
+    }
+    return null
+  })
 
   return results
     .filter((r): r is LowAttendanceStudent => r !== null)
@@ -349,10 +403,10 @@ export async function getSubjectsBySemester(trade: string, semester: number): Pr
     collection(db, COLLECTIONS.SUBJECTS),
     where('trade', '==', trade),
     where('semester', '==', semester),
-    orderBy('name')
   )
   const snap = await getDocs(q)
-  const subjects = snap.docs.map(d => ({ ...d.data(), id: d.id })) as Subject[]
+  const subjects = (snap.docs.map(d => ({ ...d.data(), id: d.id })) as Subject[])
+    .sort((a, b) => a.name.localeCompare(b.name))
   if (subjects.length > 0) return subjects
   const fallbackKey = `${trade}|${semester}`
   return FALLBACK_SUBJECTS[fallbackKey] ?? []
@@ -508,15 +562,17 @@ export async function getNotifications(userId: string): Promise<import('@/types'
   const q = query(
     collection(db, COLLECTIONS.NOTIFICATIONS),
     where('userId', '==', userId),
-    orderBy('createdAt', 'desc'),
-    limit(20)
   )
   const snap = await getDocs(q)
-  return snap.docs.map(d => ({
+  const notifications = snap.docs.map(d => ({
     ...d.data(),
     id: d.id,
     createdAt: d.data().createdAt?.toDate(),
   })) as import('@/types').Notification[]
+
+  return notifications
+    .sort((a, b) => (b.createdAt?.getTime() ?? 0) - (a.createdAt?.getTime() ?? 0))
+    .slice(0, 20)
 }
 
 export { markAttendanceSafe } from './db/attendance'
@@ -536,12 +592,10 @@ export async function getAllTeachers(): Promise<import('@/types').AppUser[]> {
     getDocs(query(
       collection(db, COLLECTIONS.USERS),
       where('role', '==', 'teacher'),
-      orderBy('displayName')
     )),
     getDocs(query(
       collection(db, COLLECTIONS.USERS),
       where('role', '==', 'admin'),
-      orderBy('displayName')
     )),
   ])
 
@@ -572,16 +626,18 @@ export async function getAllStudents(): Promise<import('@/types').StudentUser[]>
   const q = query(
     collection(db, COLLECTIONS.USERS),
     where('role', '==', 'student'),
-    orderBy('trade')
   )
   const snap = await getDocs(q)
-  return snap.docs.map(d => ({
+  const students = snap.docs.map(d => ({
     ...d.data(),
     uid: d.id,
     createdAt: d.data().createdAt?.toDate(),
     updatedAt: d.data().updatedAt?.toDate(),
   })) as import('@/types').StudentUser[]
+
+  return students.sort((a, b) => a.trade.localeCompare(b.trade))
 }
+
 
 export async function getAvailableSemesters(trade: string): Promise<number[]> {
   const snap = await getDocs(

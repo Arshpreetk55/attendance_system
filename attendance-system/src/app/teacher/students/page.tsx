@@ -97,8 +97,13 @@ function StudentsPage() {
 
   useEffect(() => {
     if (!sectionFilter.trade) { setAvailableSemesters([]); return }
-    getAvailableSemesters(sectionFilter.trade).then(setAvailableSemesters)
-  }, [sectionFilter.trade])
+    getAvailableSemesters(sectionFilter.trade).then(allSemesters => {
+      const filteredSemesters = isAsTeacher
+        ? allSemesters.filter(s => s === 1 || s === 2)
+        : allSemesters
+      setAvailableSemesters(filteredSemesters)
+    })
+  }, [sectionFilter.trade, isAsTeacher])
 
   useEffect(() => {
     if (!loading && !appUser) {
@@ -143,11 +148,14 @@ function StudentsPage() {
 
     fetchStudents
       .then(data => {
-        data.sort((a, b) => new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' }).compare(a.rollNumber, b.rollNumber))
-        setStudents(data)
+        const dataForView = isAsTeacher
+          ? data.filter(s => [1, 2].includes(s.semester ?? -1))
+          : data
+        dataForView.sort((a, b) => new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' }).compare(a.rollNumber, b.rollNumber))
+        setStudents(dataForView)
       })
       .finally(() => setDataLoading(false))
-  }, [sectionFilter])
+  }, [sectionFilter, isAsTeacher])
 
   const handleAddStudent = async () => {
     if (!newStudent.displayName || !newStudent.rollNumber || !newStudent.trade || !newStudent.semester || !newStudent.section) {

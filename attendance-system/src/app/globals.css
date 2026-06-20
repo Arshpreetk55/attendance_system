@@ -76,6 +76,17 @@ body {
   -moz-osx-font-smoothing: grayscale;
 }
 
+/* Hide native browser password reveal/clear icons so only the custom toggle remains visible */
+input[type="password"]::-ms-reveal,
+input[type="password"]::-ms-clear {
+  display: none !important;
+}
+
+input::-webkit-credentials-auto-fill-button {
+  visibility: hidden;
+  pointer-events: none;
+}
+
 /* ─── Custom Scrollbar ───────────────────────────────────────────────────── */
 ::-webkit-scrollbar {
   width: 6px;

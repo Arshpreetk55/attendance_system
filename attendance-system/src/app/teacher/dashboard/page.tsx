@@ -129,6 +129,7 @@ export default function TeacherDashboard() {
 
   const [selectedBranch, setSelectedBranch]               = useState<Branch | null>(null)
   const teacherBranches: Branch[]                         = teacher ? getTeacherBranches(teacher) : []
+  const isAsTeacher = !!teacher && teacher.departmentCode === 'AS'
 
   // todayPeriods holds ALL individual period slots for today (not deduplicated).
   // todayPeriods.length is the true "how many periods do I have today" count.
@@ -238,15 +239,17 @@ export default function TeacherDashboard() {
     init().catch(console.error)
   }, [teacher, selectedBranch])
 
+  const effectiveStudentYearFilter = isAsTeacher ? '1st' : studentYearFilter
+
   const filteredBranchStudents = useMemo(() => {
-    const sems = YEAR_SEMS[studentYearFilter]
+    const sems = YEAR_SEMS[effectiveStudentYearFilter]
     return branchStudents
       .filter(s => sems.includes(s.semester ?? -1))
       .filter(s =>
         s.displayName?.toLowerCase().includes(studentSearch.toLowerCase()) ||
         s.rollNumber?.toLowerCase().includes(studentSearch.toLowerCase())
       )
-  }, [branchStudents, studentSearch, studentYearFilter])
+  }, [branchStudents, studentSearch, effectiveStudentYearFilter])
 
   const groupedBranchStudents = useMemo(() => {
     const groups: Record<string, StudentUser[]> = {}
