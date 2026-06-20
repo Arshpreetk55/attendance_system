@@ -76,7 +76,7 @@ export function exportAttendanceCSV(records: AttendanceRecord[], students: Stude
   const csvContent = [
     headers.join(','),
     ...rows.map(row =>
-      headers.map(h => JSON.stringify((row as Record<string, unknown>)[h] ?? '')).join(',')
+      headers.map(h => JSON.stringify((row as unknown as Record<string, unknown>)[h] ?? '')).join(',')
     ),
   ].join('\n')
 
