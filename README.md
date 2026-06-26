@@ -1,7 +1,6 @@
-# Attendance System
+# AttendX — Student Attendance System
 
-A simple and user-friendly web application for managing student attendance. This project allows users to record, manage, and monitor attendance efficiently through an intuitive interface.
-
+A full-stack attendance management system built with Next.js 14 (App Router), Firebase Authentication/Firestore, and Tailwind CSS. The main app lives in `attendance-system/` (see `attendance-system/README.md` for detailed docs).
 ---
 
 ## 🚀 Features
