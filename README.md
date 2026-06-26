@@ -15,12 +15,11 @@ A full-stack attendance management system built with Next.js 14 (App Router), Fi
 
 ## 🛠️ Technologies Used
 
-- HTML
-- CSS
-- JavaScript
-- React.js (if applicable)
-- Node.js (if applicable)
-
+- Next.js 14 (React)
+- TypeScript
+- Tailwind CSS
+- Firebase (Authentication + Firestore)
+- Chart.js (react-chartjs-2)
 ---
 
 ## 📂 Project Structure
